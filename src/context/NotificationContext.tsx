@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   setupNotificationChannels,
@@ -10,6 +9,7 @@ import {
   ensureNotificationAccessPrompt,
   notifyCourseEnrolled,
   notifyAttendanceSessionActive,
+  addNotificationResponseListener,
 } from '../lib/notifications';
 import { useUser } from './AuthContext';
 import { useSupabaseClient } from '../lib/supabase';
@@ -53,8 +53,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   // Listen for user interaction with notification banners
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as any;
+    const sub = addNotificationResponseListener((response) => {
+      const data = response?.notification?.request?.content?.data as any;
       if (data?.type === 'session_active' || data?.sessionId) {
         router.push('/(student)');
       }

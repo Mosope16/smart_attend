@@ -1,26 +1,54 @@
 import { Platform, Alert } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isRunningInExpoGo } from 'expo';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 const NOTIF_PERMISSION_PROMPTED_KEY = '@notif_permission_prompted';
 const NOTIFIED_SESSIONS_KEY = '@notified_session_ids';
 
-// Configure notification behavior when app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+/**
+ * Detect whether the app is executing inside Expo Go
+ */
+export const isExpoGo: boolean =
+  isRunningInExpoGo() ||
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  (Constants as any).appOwnership === 'expo';
 
 /**
- * Initialize notification channels on Android and basic handler
+ * Expo SDK 53 removed Android remote notifications from Expo Go.
+ * We disable native push registration in this specific environment
+ * to prevent crashes while preserving full functionality in Dev/Production builds.
+ */
+export const isExpoGoAndroid: boolean = isExpoGo && Platform.OS === 'android';
+
+// Safely resolve expo-notifications without triggering Expo Go Android module-level crash
+let Notifications: typeof import('expo-notifications') | null = null;
+if (!isExpoGoAndroid) {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (e) {
+    console.warn('[Notifications] Could not load expo-notifications module:', e);
+  }
+}
+
+// Configure notification behavior when app is in foreground (Dev Builds / iOS / Non-ExpoGo)
+if (Notifications && typeof Notifications.setNotificationHandler === 'function') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
+
+/**
+ * Initialize notification channels on Android
  */
 export async function setupNotificationChannels(): Promise<void> {
-  if (Platform.OS === 'android') {
+  if (Platform.OS === 'android' && Notifications && typeof Notifications.setNotificationChannelAsync === 'function') {
     try {
       await Notifications.setNotificationChannelAsync('course-attendance', {
         name: 'Course Attendance Alerts',
@@ -50,8 +78,16 @@ export async function setupNotificationChannels(): Promise<void> {
 export async function getNotificationPermissionStatus(): Promise<{
   granted: boolean;
   canAskAgain: boolean;
-  status: Notifications.PermissionStatus;
+  status: any;
 }> {
+  if (isExpoGoAndroid || !Notifications || typeof Notifications.getPermissionsAsync !== 'function') {
+    return {
+      granted: false,
+      canAskAgain: false,
+      status: 'undetermined',
+    };
+  }
+
   try {
     const settings = await Notifications.getPermissionsAsync();
     return {
@@ -64,7 +100,7 @@ export async function getNotificationPermissionStatus(): Promise<{
     return {
       granted: false,
       canAskAgain: true,
-      status: Notifications.PermissionStatus.UNDETERMINED,
+      status: 'undetermined',
     };
   }
 }
@@ -73,6 +109,20 @@ export async function getNotificationPermissionStatus(): Promise<{
  * Request notification permissions from the OS
  */
 export async function requestNotificationAccess(): Promise<boolean> {
+  if (isExpoGoAndroid) {
+    Alert.alert(
+      'Expo Go Environment Notice',
+      'Push notifications on Android require a Development Build or Preview APK (EAS Build) starting from Expo SDK 53.\n\nAll core app features, geofencing, QR codes, and attendance tracking are fully functional.',
+      [{ text: 'Understood' }]
+    );
+    await AsyncStorage.setItem(NOTIF_PERMISSION_PROMPTED_KEY, 'true');
+    return false;
+  }
+
+  if (!Notifications || typeof Notifications.requestPermissionsAsync !== 'function') {
+    return false;
+  }
+
   try {
     await setupNotificationChannels();
     const { status } = await Notifications.requestPermissionsAsync({
@@ -96,6 +146,10 @@ export async function requestNotificationAccess(): Promise<boolean> {
  * Prompt user to grant notification access if they haven't yet, explaining the value for enrolled courses
  */
 export async function ensureNotificationAccessPrompt(courseCode?: string): Promise<boolean> {
+  if (isExpoGoAndroid) {
+    return false;
+  }
+
   const current = await getNotificationPermissionStatus();
   if (current.granted) {
     return true;
@@ -147,6 +201,8 @@ export async function ensureNotificationAccessPrompt(courseCode?: string): Promi
  * Dispatches a local notification confirming course enrollment
  */
 export async function notifyCourseEnrolled(courseCode: string, courseTitle?: string): Promise<void> {
+  if (!Notifications || typeof Notifications.scheduleNotificationAsync !== 'function') return;
+
   try {
     const perm = await getNotificationPermissionStatus();
     if (!perm.granted) return;
@@ -162,7 +218,7 @@ export async function notifyCourseEnrolled(courseCode: string, courseTitle?: str
         priority: Notifications.AndroidNotificationPriority.HIGH,
         data: { type: 'enrollment', courseCode },
       },
-      trigger: null, // deliver immediately
+      trigger: null,
     });
   } catch (e) {
     console.warn('Failed to schedule course enrollment notification:', e);
@@ -177,6 +233,8 @@ export async function notifyAttendanceSessionActive(
   sessionId: string,
   courseTitle?: string
 ): Promise<void> {
+  if (!Notifications || typeof Notifications.scheduleNotificationAsync !== 'function') return;
+
   try {
     const perm = await getNotificationPermissionStatus();
     if (!perm.granted) return;
@@ -211,4 +269,14 @@ export async function notifyAttendanceSessionActive(
   } catch (e) {
     console.warn('Failed to schedule session active notification:', e);
   }
+}
+
+/**
+ * Safely subscribe to notification responses (banner tap)
+ */
+export function addNotificationResponseListener(callback: (response: any) => void): { remove: () => void } {
+  if (Notifications && typeof Notifications.addNotificationResponseReceivedListener === 'function') {
+    return Notifications.addNotificationResponseReceivedListener(callback);
+  }
+  return { remove: () => {} };
 }
