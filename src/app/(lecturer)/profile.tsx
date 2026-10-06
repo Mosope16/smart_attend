@@ -12,6 +12,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, ThemeMode } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
+import SecurityPasswordModal from '../../components/SecurityPasswordModal';
+import HelpSupportModal from '../../components/HelpSupportModal';
 
 const ff = Platform.OS === 'android';
 
@@ -25,6 +27,10 @@ export default function LecturerProfileScreen() {
   const { isPermissionGranted, requestPermission } = useNotifications();
 
   const [stats, setStats] = useState({ students: 0, avgAttend: 0, courses: 0 });
+
+  // Modals
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
+  const [helpModalVisible, setHelpModalVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -113,8 +119,8 @@ export default function LecturerProfileScreen() {
       badgeActive: isPermissionGranted,
       onPress: () => requestPermission(),
     },
-    { icon: <Lock size={20} color={colors.textSub} />, title: 'Security & Password', onPress: undefined },
-    { icon: <HelpCircle size={20} color={colors.textSub} />, title: 'Help & Support', onPress: undefined },
+    { icon: <Lock size={20} color={colors.textSub} />, title: 'Security & Password', onPress: () => setSecurityModalVisible(true) },
+    { icon: <HelpCircle size={20} color={colors.textSub} />, title: 'Help & Support', onPress: () => setHelpModalVisible(true) },
   ];
 
   const appearanceModes: { key: ThemeMode; label: string; icon: React.ReactNode }[] = [
@@ -126,10 +132,11 @@ export default function LecturerProfileScreen() {
   const s = makeStyles(colors);
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={{ paddingBottom: 40 }}>
-      <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
-        <Text style={s.headerTitle}>Profile</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ScrollView style={s.root} contentContainerStyle={{ paddingBottom: 40 }}>
+        <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
+          <Text style={s.headerTitle}>Profile</Text>
+        </View>
 
       <View style={s.cardWrapper}>
         <View style={s.avatarCard}>
@@ -242,7 +249,22 @@ export default function LecturerProfileScreen() {
         <Text style={s.logoutText}>Log Out</Text>
       </Pressable>
     </ScrollView>
-  );
+
+    {/* Modals */}
+    <SecurityPasswordModal
+      visible={securityModalVisible}
+      onClose={() => setSecurityModalVisible(false)}
+      accentColor={SECONDARY}
+      role="lecturer"
+    />
+    <HelpSupportModal
+      visible={helpModalVisible}
+      onClose={() => setHelpModalVisible(false)}
+      accentColor={SECONDARY}
+      role="lecturer"
+    />
+  </View>
+);
 }
 
 function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').useTheme>['colors']) {

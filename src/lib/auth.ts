@@ -368,5 +368,49 @@ export const neonAuth = {
       console.error('Error refreshing profile:', e);
     }
     return null;
-  }
+  },
+
+  async changePassword({
+    currentPassword,
+    newPassword,
+  }: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; error: string | null }> {
+    try {
+      const token = await getStorageItem(AUTH_TOKEN_KEY);
+      const cookie = await getStorageItem(AUTH_COOKIE_KEY);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Origin': ORIGIN,
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (cookie) headers['Cookie'] = cookie;
+
+      const res = await fetch(`${NEON_AUTH_URL}/change-password`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          revokeOtherSessions: false,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error || data.code) {
+        const msg = data.message || data.error || 'Failed to update password. Please check your current password.';
+        return {
+          success: false,
+          error: formatFriendlyAuthError(msg),
+        };
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      console.error('changePassword error:', err);
+      return { success: false, error: formatFriendlyAuthError(err) };
+    }
+  },
 };

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { User, Lock, Mail, Hash, GraduationCap } from 'lucide-react-native';
+import { User, Lock, Mail, Hash, GraduationCap, Eye, EyeOff } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +32,7 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [matricNumber, setMatricNumber] = useState('');
   const [staffId, setStaffId] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -152,7 +153,21 @@ export default function RegisterScreen() {
         </View>
         <View style={s.inputRow}>
           <Lock size={20} color={colors.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={s.input} value={password} placeholder="Create Password" placeholderTextColor={colors.textMuted} secureTextEntry onChangeText={setPassword} />
+          <TextInput
+            style={s.input}
+            value={password}
+            placeholder="Create Password"
+            placeholderTextColor={colors.textMuted}
+            secureTextEntry={!showPassword}
+            onChangeText={setPassword}
+          />
+          <Pressable onPress={() => setShowPassword((p) => !p)} style={s.eyeBtn}>
+            {showPassword ? (
+              <EyeOff size={18} color={colors.textMuted} />
+            ) : (
+              <Eye size={18} color={colors.textMuted} />
+            )}
+          </Pressable>
         </View>
       </View>
 
@@ -189,6 +204,7 @@ function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').us
     fieldGroup: { gap: 12, marginBottom: 24 },
     inputRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: c.cardBorder, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: c.card },
     input: { flex: 1, fontSize: 15, color: c.text, fontFamily: ff ? 'sans-serif' : undefined },
+    eyeBtn: { padding: 4, marginLeft: 6 },
     primaryBtn: { paddingVertical: 16, borderRadius: 16, alignItems: 'center', marginBottom: 24, elevation: 2 },
     primaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 17, fontFamily: ff ? 'sans-serif-medium' : undefined },
     footerRow: { flexDirection: 'row', justifyContent: 'center', paddingBottom: 16 },

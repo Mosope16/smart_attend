@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, ThemeMode } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { parseSafeDate } from '../../lib/dateUtils';
+import SecurityPasswordModal from '../../components/SecurityPasswordModal';
+import HelpSupportModal from '../../components/HelpSupportModal';
 
 const ff = Platform.OS === 'android';
 
@@ -31,6 +33,10 @@ export default function StudentProfileScreen() {
   const [overallPct, setOverallPct] = useState<number | null>(null);
   const [weekCount, setWeekCount] = useState<number>(0);
   const [statsLoading, setStatsLoading] = useState(true);
+
+  // Modals
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
+  const [helpModalVisible, setHelpModalVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,12 +116,12 @@ export default function StudentProfileScreen() {
     {
       icon: <Lock size={20} color={colors.textSub} />,
       title: 'Security & Password',
-      onPress: undefined,
+      onPress: () => setSecurityModalVisible(true),
     },
     {
       icon: <HelpCircle size={20} color={colors.textSub} />,
       title: 'Help & Support',
-      onPress: undefined,
+      onPress: () => setHelpModalVisible(true),
     },
   ];
 
@@ -128,8 +134,9 @@ export default function StudentProfileScreen() {
   const s = makeStyles(colors);
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={{ paddingBottom: 40 }}>
-      {/* Header */}
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ScrollView style={s.root} contentContainerStyle={{ paddingBottom: 40 }}>
+        {/* Header */}
       <View style={[s.header, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
         <Text style={s.headerTitle}>Profile</Text>
       </View>
@@ -252,7 +259,22 @@ export default function StudentProfileScreen() {
         <Text style={s.logoutText}>Log Out</Text>
       </Pressable>
     </ScrollView>
-  );
+
+    {/* Modals */}
+    <SecurityPasswordModal
+      visible={securityModalVisible}
+      onClose={() => setSecurityModalVisible(false)}
+      accentColor={PRIMARY}
+      role="student"
+    />
+    <HelpSupportModal
+      visible={helpModalVisible}
+      onClose={() => setHelpModalVisible(false)}
+      accentColor={PRIMARY}
+      role="student"
+    />
+  </View>
+);
 }
 
 function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').useTheme>['colors']) {

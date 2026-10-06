@@ -31,6 +31,7 @@ interface AuthContextType {
   user: AppUser | null;
   signIn: typeof neonAuth.signIn;
   signUp: typeof neonAuth.signUp;
+  changePassword: typeof neonAuth.changePassword;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -41,6 +42,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   signIn: async () => ({ user: null, error: null }),
   signUp: async () => ({ user: null, error: null }),
+  changePassword: async () => ({ success: false, error: null }),
   signOut: async () => {},
   refreshUser: async () => {},
 });
@@ -156,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: appUser,
       signIn,
       signUp,
+      changePassword: neonAuth.changePassword,
       signOut,
       refreshUser,
     }),
@@ -166,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useAuth() {
-  const { isLoaded, isSignedIn, user, signOut, signIn, signUp } = useContext(AuthContext);
+  const { isLoaded, isSignedIn, user, signOut, signIn, signUp, changePassword } = useContext(AuthContext);
   return {
     isLoaded,
     isSignedIn,
@@ -174,6 +177,7 @@ export function useAuth() {
     signOut,
     signIn,
     signUp,
+    changePassword,
   };
 }
 

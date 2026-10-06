@@ -56,30 +56,57 @@ export async function getCurrentAttendanceLocation(): Promise<{
 
     let location: Location.LocationObject | null = null;
 
+    // 1. Fast-path: If the device already has a position cached within the last 5 minutes, use it immediately
     try {
-      // Attempt fresh high-accuracy satellite fix with an 8s timeout to avoid hanging indoors
-      const locationPromise = Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      const timeoutPromise = new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('GPS acquisition timed out')), 8000)
-      );
+      const cached = await Location.getLastKnownPositionAsync({ maxAge: 300000 });
+      if (cached?.coords) {
+        location = cached;
+      }
+    } catch {
+      // Ignore cache lookup errors
+    }
 
-      location = await Promise.race([locationPromise, timeoutPromise]);
-    } catch (gpsErr) {
-      console.warn('Fresh GPS lock slow or unavailable, attempting last known position:', gpsErr);
-      // Fallback 1: Try recent last known position (cached by OS)
-      location = await Location.getLastKnownPositionAsync({ maxAge: 120000 });
-      // Fallback 2: Try any cached position if recent is not available
-      if (!location) {
-        location = await Location.getLastKnownPositionAsync({});
+    // 2. Fresh position: Balanced accuracy acquires Wi-Fi/cellular & GPS quickly indoors
+    if (!location) {
+      try {
+        const locationPromise = Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          mayShowUserSettingsDialog: true,
+        });
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('GPS timeout')), 4000)
+        );
+
+        location = await Promise.race([locationPromise, timeoutPromise]);
+      } catch {
+        // Fallback A: Use any OS-cached position (even if older than 5 mins)
+        try {
+          location = await Location.getLastKnownPositionAsync({});
+        } catch {
+          // Ignore fallback error
+        }
+
+        // Fallback B: Coarse/Lowest cellular positioning as last resort
+        if (!location) {
+          try {
+            const coarsePromise = Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Lowest,
+            });
+            const coarseTimeout = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Coarse timeout')), 2500)
+            );
+            location = await Promise.race([coarsePromise, coarseTimeout]);
+          } catch {
+            // Ignore
+          }
+        }
       }
     }
 
     if (!location) {
       return {
         coords: null,
-        error: 'Unable to retrieve your current GPS coordinates. Please check your signal and try again.',
+        error: 'Unable to retrieve your GPS coordinates. Please ensure Location is enabled with High Accuracy.',
       };
     }
 
