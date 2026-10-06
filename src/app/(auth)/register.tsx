@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -79,20 +80,27 @@ export default function RegisterScreen() {
   const s = makeStyles(colors);
 
   return (
-    <ScrollView
-      style={s.container}
-      contentContainerStyle={[
-        s.content,
-        {
-          paddingTop: Math.max(insets.top, 20) + 16,
-          paddingBottom: Math.max(insets.bottom, 24) + 24,
-        },
-      ]}
-      keyboardShouldPersistTaps="handled"
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar style={isDark ? "light" : "dark"} />
-      {/* Logo */}
-      <View style={s.logoContainer}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          style={s.container}
+          contentContainerStyle={[
+            s.content,
+            {
+              flexGrow: 1,
+              paddingTop: Math.max(insets.top, 20) + 16,
+              paddingBottom: Math.max(insets.bottom, 24) + 24,
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <StatusBar style={isDark ? "light" : "dark"} />
+          {/* Logo */}
+          <View style={s.logoContainer}>
         <View style={[s.logoRing, { borderColor: themeColor }]}>
           <GraduationCap size={32} color={themeColor} />
         </View>
@@ -158,7 +166,9 @@ export default function RegisterScreen() {
           <Text style={[s.footerLink, { color: themeColor }]}>Sign In</Text>
         </Pressable>
       </View>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 

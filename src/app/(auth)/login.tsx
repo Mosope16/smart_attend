@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { User, Lock, GraduationCap, Eye, EyeOff } from 'lucide-react-native';
@@ -51,17 +52,24 @@ export default function LoginScreen() {
   const s = makeStyles(colors);
 
   return (
-    <ScrollView
-      style={s.container}
-      contentContainerStyle={[
-        s.content,
-        {
-          paddingTop: Math.max(insets.top, 20) + 16,
-          paddingBottom: Math.max(insets.bottom, 24) + 24,
-        },
-      ]}
-      keyboardShouldPersistTaps="handled"
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          style={s.container}
+          contentContainerStyle={[
+            s.content,
+            {
+              flexGrow: 1,
+              paddingTop: Math.max(insets.top, 20) + 16,
+              paddingBottom: Math.max(insets.bottom, 24) + 24,
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
       {/* Logo */}
       <View style={s.logoContainer}>
         <View style={[s.logoRing, { borderColor: themeColor }]}>
@@ -141,7 +149,9 @@ export default function LoginScreen() {
           <Text style={[s.footerLink, { color: themeColor }]}>Sign Up</Text>
         </Pressable>
       </View>
-    </ScrollView>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 

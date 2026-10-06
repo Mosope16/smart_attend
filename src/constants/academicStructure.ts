@@ -38,7 +38,7 @@ export const ACADEMIC_FACULTIES: Faculty[] = [
   },
   {
     id: 'engineering',
-    name: 'Faculty of Engineering and Technology',
+    name: 'Faculty of Engineering',
     shortName: 'FENG',
     departments: [
       'Civil Engineering',
