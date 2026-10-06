@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { db } from './neon';
+import { getFacultyForDepartment } from '../constants/academicStructure';
 
 const NEON_AUTH_URL = process.env.EXPO_PUBLIC_NEON_AUTH_URL || 'https://ep-broad-fire-b5t3ep7p.neonauth.c-7.us-east-2.aws.neon.tech/neondb/auth';
 const ORIGIN = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.origin
@@ -18,6 +19,7 @@ export interface UserProfile {
   role: 'student' | 'lecturer';
   matric_number?: string | null;
   staff_id?: string | null;
+  faculty?: string | null;
   department?: string | null;
   phone?: string | null;
   createdAt?: string;
@@ -313,6 +315,7 @@ export const neonAuth = {
         role: profileData?.role || 'student',
         matric_number: profileData?.matric_number,
         staff_id: profileData?.staff_id,
+        faculty: profileData?.faculty || getFacultyForDepartment(profileData?.department) || null,
         department: profileData?.department,
         phone: profileData?.phone,
         createdAt: profileData?.created_at,

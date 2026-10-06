@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT CHECK (role IN ('student', 'lecturer')) NOT NULL,
   matric_number TEXT, -- Only for students
   staff_id TEXT,      -- Only for lecturers
+  faculty TEXT,
+  department TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

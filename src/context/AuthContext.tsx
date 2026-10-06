@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { neonAuth, UserProfile } from '../lib/auth';
 import { db } from '../lib/neon';
+import { getFacultyForDepartment } from '../constants/academicStructure';
 
 export interface AppUser extends UserProfile {
   fullName: string;
@@ -12,6 +13,7 @@ export interface AppUser extends UserProfile {
     role: 'student' | 'lecturer';
     matric_number?: string | null;
     staff_id?: string | null;
+    faculty?: string | null;
     department?: string | null;
     phone?: string | null;
   };
@@ -60,6 +62,7 @@ function toAppUser(profile: UserProfile | null, onRefresh: () => Promise<void>):
       role: profile.role,
       matric_number: profile.matric_number,
       staff_id: profile.staff_id,
+      faculty: profile.faculty || getFacultyForDepartment(profile.department) || null,
       department: profile.department,
       phone: profile.phone,
     },
@@ -73,7 +76,14 @@ function toAppUser(profile: UserProfile | null, onRefresh: () => Promise<void>):
       if (updatedName) updates.name = updatedName;
       if (meta.matric_number !== undefined) updates.matric_number = meta.matric_number;
       if (meta.staff_id !== undefined) updates.staff_id = meta.staff_id;
-      if (meta.department !== undefined) updates.department = meta.department;
+      if (meta.faculty !== undefined) updates.faculty = meta.faculty;
+      if (meta.department !== undefined) {
+        updates.department = meta.department;
+        if (!meta.faculty && updates.department) {
+          const inferred = getFacultyForDepartment(updates.department);
+          if (inferred) updates.faculty = inferred;
+        }
+      }
       if (meta.phone !== undefined) updates.phone = meta.phone;
 
       if (Object.keys(updates).length > 0) {

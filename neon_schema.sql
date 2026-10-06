@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   role TEXT CHECK (role IN ('student', 'lecturer')) NOT NULL,
   matric_number TEXT, -- Only for students
   staff_id TEXT,      -- Only for lecturers
+  faculty TEXT,
   department TEXT,
   phone TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -62,3 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_course ON public.enrollments(course_i
 CREATE INDEX IF NOT EXISTS idx_sessions_course ON public.attendance_sessions(course_id);
 CREATE INDEX IF NOT EXISTS idx_records_session ON public.attendance_records(session_id);
 CREATE INDEX IF NOT EXISTS idx_records_student ON public.attendance_records(student_id);
+
+-- Optional Migrations for Existing Databases:
+-- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS faculty TEXT;
+-- ALTER TABLE public.attendance_sessions ADD COLUMN IF NOT EXISTS radius_meters INTEGER DEFAULT 50;

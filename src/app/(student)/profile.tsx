@@ -151,6 +151,16 @@ export default function StudentProfileScreen() {
             <Text style={[s.roleText, { color: colors.primaryText }]}>Student</Text>
           </View>
           <Text style={s.subInfo}>Matric: {(user?.unsafeMetadata as any)?.matric_number || '—'}</Text>
+          {Boolean((user?.unsafeMetadata as any)?.department) && (
+            <Text style={[s.subInfo, { color: colors.text, fontWeight: '600', marginTop: 3 }]}>
+              {(user?.unsafeMetadata as any)?.department}
+            </Text>
+          )}
+          {Boolean((user?.unsafeMetadata as any)?.faculty) && (
+            <Text style={[s.subInfo, { fontSize: 11, color: colors.textMuted, marginTop: 1 }]}>
+              {(user?.unsafeMetadata as any)?.faculty}
+            </Text>
+          )}
         </View>
 
         {/* Stats */}

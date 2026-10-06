@@ -149,6 +149,11 @@ export default function LecturerProfileScreen() {
             </Text>
           </View>
           <Text style={s.subInfo}>Staff ID: {(user?.unsafeMetadata as any)?.staff_id || 'Not Set'}</Text>
+          {Boolean((user?.unsafeMetadata as any)?.faculty) && (
+            <Text style={[s.subInfo, { fontSize: 11, color: colors.textMuted, marginTop: 1 }]}>
+              {(user?.unsafeMetadata as any)?.faculty}
+            </Text>
+          )}
         </View>
 
         <View style={s.statsRow}>
