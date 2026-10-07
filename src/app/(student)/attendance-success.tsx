@@ -35,6 +35,7 @@ export default function AttendanceSuccessScreen() {
         {[
           { label: 'Date', value: formatDate(displayDate, { showDay: true, showYear: true }) },
           { label: 'Time', value: formatTime(displayDate) },
+          { label: 'Verified Device', value: params.deviceName ? String(params.deviceName) : 'Single-Device Locked' },
           { label: 'Status', value: '✓ Present' },
         ].map((item) => (
           <View key={item.label} style={s.detailRow}>

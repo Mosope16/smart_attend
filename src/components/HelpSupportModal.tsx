@@ -27,6 +27,7 @@ import {
   MessageSquare,
   CheckCircle,
   Info,
+  ShieldCheck,
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 
@@ -47,6 +48,13 @@ interface FAQItem {
 }
 
 const FAQ_LIST: FAQItem[] = [
+  {
+    id: 'proxy-protection',
+    icon: ShieldCheck,
+    question: 'How does SmartAttend prevent proxy attendance?',
+    answer:
+      'SmartAttend enforces Single-Device Locking for each session. A physical phone can only record attendance for ONE student per lecture. If a classmate signs in on their phone to mark for an absent friend, the second check-in is instantly blocked. If you genuinely get a new phone, your account automatically updates to your new device with zero disruption.',
+  },
   {
     id: 'gps-lock',
     icon: MapPin,

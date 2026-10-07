@@ -6,7 +6,7 @@ import { StatusBar } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useUser } from '../../../context/AuthContext';
 import { useSupabaseClient } from '../../../lib/supabase';
-import { ChevronLeft, Users, QrCode, User, Clock, RefreshCw, Download, MapPin, XCircle } from 'lucide-react-native';
+import { ChevronLeft, Users, QrCode, User, Clock, RefreshCw, Download, MapPin, XCircle, Smartphone } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
@@ -40,6 +40,7 @@ export default function LecturerCourseDetails() {
   const [selectedRadius, setSelectedRadius] = useState<number>(50);
   const [students, setStudents] = useState<any[]>([]);
   const [presentStudentIds, setPresentStudentIds] = useState<Set<string>>(new Set());
+  const [presentStudentDevices, setPresentStudentDevices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -79,14 +80,22 @@ export default function LecturerCourseDetails() {
       if (sessionData) {
         const { data: recordsData } = await supabase
           .from('attendance_records')
-          .select('student_id')
+          .select('student_id, device_name')
           .eq('session_id', sessionData.id)
           .eq('status', 'present');
         
         const presentIds = new Set<string>((recordsData ?? []).map((r: any) => r.student_id as string));
+        const devMap: Record<string, string> = {};
+        (recordsData ?? []).forEach((r: any) => {
+          if (r.student_id && r.device_name) {
+            devMap[r.student_id] = r.device_name;
+          }
+        });
         setPresentStudentIds(presentIds);
+        setPresentStudentDevices(devMap);
       } else {
         setPresentStudentIds(new Set<string>());
+        setPresentStudentDevices({});
       }
     } finally {
       setLoading(false);
@@ -116,6 +125,12 @@ export default function LecturerCourseDetails() {
             newSet.add(payload.new.student_id);
             return newSet;
           });
+          if (payload.new.student_id && payload.new.device_name) {
+            setPresentStudentDevices((prev) => ({
+              ...prev,
+              [payload.new.student_id]: payload.new.device_name,
+            }));
+          }
         }
       )
       .subscribe();
@@ -300,17 +315,19 @@ export default function LecturerCourseDetails() {
       }
 
       rows.push([]); // blank separator line
-      rows.push(['S/N', 'Matric Number', 'Student Name', 'Attendance Status']);
+      rows.push(['S/N', 'Matric Number', 'Student Name', 'Attendance Status', 'Verified Device']);
 
       students.forEach((item: any, index: number) => {
         const student = item.student;
         if (!student) return;
         const isPresent = activeSession ? presentStudentIds.has(student.id) : false;
+        const verifiedDev = activeSession && isPresent ? (presentStudentDevices[student.id] || 'Verified Mobile') : '—';
         rows.push([
           index + 1,
           student.matric_number || 'N/A',
           student.name || 'N/A',
           activeSession ? (isPresent ? 'Present' : 'Absent') : 'Enrolled',
+          verifiedDev,
         ]);
       });
 
@@ -591,7 +608,17 @@ export default function LecturerCourseDetails() {
                   </View>
                   <View style={s.rosterInfo}>
                     <Text style={s.rosterName}>{item.student?.name || 'Unknown'}</Text>
-                    <Text style={s.rosterMatric}>{item.student?.matric_number || 'No matric no.'}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                      <Text style={s.rosterMatric}>{item.student?.matric_number || 'No matric no.'}</Text>
+                      {Boolean(isPresent && presentStudentDevices[studentId]) && (
+                        <View style={[s.deviceBadge, { backgroundColor: colors.secondaryDim }]}>
+                          <Smartphone size={10} color={SECONDARY} />
+                          <Text style={[s.deviceBadgeText, { color: SECONDARY }]} numberOfLines={1}>
+                            {presentStudentDevices[studentId]}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   {isPresent && <View style={s.presentDot} />}
                 </View>
@@ -804,7 +831,20 @@ function makeStyles(c: ReturnType<typeof import('../../../context/ThemeContext')
     rosterIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     rosterInfo: { flex: 1 },
     rosterName: { fontSize: 14, fontWeight: '600', color: c.text, fontFamily: ff ? 'sans-serif-medium' : undefined },
-    rosterMatric: { fontSize: 12, color: c.textMuted, marginTop: 2, fontFamily: ff ? 'sans-serif' : undefined },
+    rosterMatric: { fontSize: 12, color: c.textMuted, fontFamily: ff ? 'sans-serif' : undefined },
+    deviceBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+    },
+    deviceBadgeText: {
+      fontSize: 10,
+      fontWeight: '600',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
     presentDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#1B6B3A' },
   });
 }

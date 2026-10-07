@@ -11,6 +11,7 @@ import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { getCurrentAttendanceLocation, validateGeofenceProximity } from '../../lib/geo';
+import { getDeviceFingerprint } from '../../lib/device';
 import * as Haptics from 'expo-haptics';
 
 const ff = Platform.OS === 'android';
@@ -136,10 +137,44 @@ export default function MarkAttendanceScreen() {
       }
     }
 
+    // ─── Anti-Proxy Device Verification (Single-Device-Per-Session) ───
+    const device = await getDeviceFingerprint();
+
+    // Check if this physical device has already recorded attendance for another student in this session
+    const { data: existingDeviceRecord } = await supabase
+      .from('attendance_records')
+      .select('id, student_id')
+      .eq('session_id', session.id)
+      .eq('device_id', device.deviceId)
+      .single();
+
+    if (existingDeviceRecord && existingDeviceRecord.student_id !== user.id) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError('Proxy attendance blocked: This physical device has already recorded attendance for another student in this session.');
+      setLoading(false);
+      setScanned(false);
+      return;
+    }
+
+    // ─── Seamless Device Binding (Auto-sync student active device) ─────
+    const registeredDeviceId = (user?.unsafeMetadata as any)?.device_id;
+    if (!registeredDeviceId || registeredDeviceId !== device.deviceId) {
+      user?.update({
+        unsafeMetadata: {
+          ...user.unsafeMetadata,
+          device_id: device.deviceId,
+          device_name: device.deviceName,
+          device_updated_at: new Date().toISOString(),
+        },
+      }).catch(() => {});
+    }
+
     const recordTimestamp = new Date().toISOString();
     const { error: recordError } = await supabase.from('attendance_records').insert({
       session_id: session.id,
       student_id: user.id,
+      device_id: device.deviceId,
+      device_name: device.deviceName,
       status: 'present',
       timestamp: recordTimestamp,
     });
@@ -148,7 +183,13 @@ export default function MarkAttendanceScreen() {
 
     if (recordError) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      if (recordError.code === '23505') {
+      const errMsg = String(recordError.message || recordError.details || '');
+      if (
+        recordError.code === '23505' &&
+        (errMsg.includes('idx_records_session_device') || errMsg.includes('device_id'))
+      ) {
+        setError('Proxy attendance blocked: This physical device was already used to sign attendance for this lecture.');
+      } else if (recordError.code === '23505') {
         setError('You have already marked attendance for this session.');
       } else {
         setError('Something went wrong saving attendance. Please try again.');
@@ -160,7 +201,10 @@ export default function MarkAttendanceScreen() {
       setTimeout(() => {
         router.push({
           pathname: '/(student)/attendance-success',
-          params: { timestamp: recordTimestamp },
+          params: {
+            timestamp: recordTimestamp,
+            deviceName: device.deviceName,
+          },
         });
       }, 700);
     }

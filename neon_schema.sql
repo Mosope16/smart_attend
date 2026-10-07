@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS public.users (
   faculty TEXT,
   department TEXT,
   phone TEXT,
+  device_id TEXT,
+  device_name TEXT,
+  device_updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -46,11 +49,13 @@ CREATE TABLE IF NOT EXISTS public.attendance_sessions (
   end_time TIMESTAMPTZ NOT NULL
 );
 
--- 5. Create Attendance Records Table
+-- 5. Create Attendance Records Table (Anti-Proxy protected)
 CREATE TABLE IF NOT EXISTS public.attendance_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id UUID REFERENCES public.attendance_sessions(id) ON DELETE CASCADE NOT NULL,
   student_id UUID REFERENCES neon_auth.user(id) ON DELETE CASCADE NOT NULL,
+  device_id TEXT,
+  device_name TEXT,
   status TEXT CHECK (status IN ('present', 'absent')) NOT NULL DEFAULT 'present',
   timestamp TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(session_id, student_id)
@@ -63,7 +68,12 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_course ON public.enrollments(course_i
 CREATE INDEX IF NOT EXISTS idx_sessions_course ON public.attendance_sessions(course_id);
 CREATE INDEX IF NOT EXISTS idx_records_session ON public.attendance_records(session_id);
 CREATE INDEX IF NOT EXISTS idx_records_student ON public.attendance_records(student_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_records_session_device ON public.attendance_records(session_id, device_id);
 
 -- Optional Migrations for Existing Databases:
 -- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS faculty TEXT;
 -- ALTER TABLE public.attendance_sessions ADD COLUMN IF NOT EXISTS radius_meters INTEGER DEFAULT 50;
+-- ALTER TABLE public.attendance_records ADD COLUMN IF NOT EXISTS device_id TEXT;
+-- ALTER TABLE public.attendance_records ADD COLUMN IF NOT EXISTS device_name TEXT;
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_records_session_device ON public.attendance_records(session_id, device_id);
+
