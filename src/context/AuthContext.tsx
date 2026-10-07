@@ -15,6 +15,7 @@ export interface AppUser extends UserProfile {
     staff_id?: string | null;
     faculty?: string | null;
     department?: string | null;
+    level?: string | null;
     phone?: string | null;
   };
   update: (params: {
@@ -66,6 +67,7 @@ function toAppUser(profile: UserProfile | null, onRefresh: () => Promise<void>):
       staff_id: profile.staff_id,
       faculty: profile.faculty || getFacultyForDepartment(profile.department) || null,
       department: profile.department,
+      level: (profile as any).level || null,
       phone: profile.phone,
     },
     update: async (params) => {
@@ -86,6 +88,7 @@ function toAppUser(profile: UserProfile | null, onRefresh: () => Promise<void>):
           if (inferred) updates.faculty = inferred;
         }
       }
+      if (meta.level !== undefined) updates.level = meta.level;
       if (meta.phone !== undefined) updates.phone = meta.phone;
 
       if (Object.keys(updates).length > 0) {

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   staff_id TEXT,      -- Only for lecturers
   faculty TEXT,
   department TEXT,
+  level TEXT,
   phone TEXT,
   device_id TEXT,
   device_name TEXT,

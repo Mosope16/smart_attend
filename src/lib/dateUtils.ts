@@ -125,3 +125,16 @@ export function formatRelativeTime(input: any): string {
 
   return formatDate(d, { showDay: false, showYear: true });
 }
+
+/**
+ * Formats date strictly as "DD/MM/YYYY" (e.g. "12/02/2026")
+ */
+export function formatDDMMYYYY(input: any): string {
+  const d = parseSafeDate(input);
+  const day = d.getDate();
+  const month = d.getMonth() + 1;
+  const year = d.getFullYear();
+  const dayStr = day < 10 ? `0${day}` : `${day}`;
+  const monthStr = month < 10 ? `0${month}` : `${month}`;
+  return `${dayStr}/${monthStr}/${year}`;
+}

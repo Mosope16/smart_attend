@@ -9,7 +9,7 @@ import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { exportCsv } from '../../lib/exportCsv';
-import { formatDate, formatTime } from '../../lib/dateUtils';
+import { formatDate, formatTime, formatDDMMYYYY } from '../../lib/dateUtils';
 
 const ff = Platform.OS === 'android';
 
@@ -113,45 +113,121 @@ export default function ReportsScreen() {
 
     try {
       setExporting(true);
-      const dateStr = formatDate(new Date(), { showDay: false, showYear: true });
-      const timeStr = formatTime(new Date());
 
-      const onTrackCount = studentStats.filter((s) => s.attendance >= 75).length;
-      const atRiskCount = studentStats.filter((s) => s.attendance < 75).length;
+      // 1. Fetch all attendance sessions for this course, ordered chronologically starting with the first lecture
+      const { data: allSessions, error: sessErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, start_time, end_time, created_at')
+        .eq('course_id', selectedCourse.id)
+        .order('start_time', { ascending: true });
 
-      const rows: (string | number)[][] = [
-        ['SMARTATTEND ATTENDANCE REPORT'],
-        ['Course Code', selectedCourse.course_code || 'N/A'],
-        ['Course Title', selectedCourse.course_title || 'N/A'],
-        ['Lecturer / Instructor', `Dr. ${user?.lastName || user?.firstName || 'Lecturer'}`],
-        ['Report Generated Date', `${dateStr} ${timeStr}`],
-        ['Class Average Attendance', `${avgAttendance}%`],
-        ['Total Students Enrolled', studentStats.length],
-        ['Students On Track (>= 75%)', onTrackCount],
-        ['Students At Risk (< 75%)', atRiskCount],
-        [], // blank separator
-        ['S/N', 'Matric Number', 'Student Name', 'Present Sessions', 'Total Sessions Held', 'Attendance Rate (%)', 'Status'],
+      if (sessErr) {
+        console.warn('Error fetching all course sessions:', sessErr);
+      }
+
+      const sessions = allSessions ?? [];
+      const sessionIds = sessions.map((s: any) => s.id);
+
+      // 2. Fetch all attendance records for these sessions
+      const presenceSet = new Set<string>();
+      if (sessionIds.length > 0) {
+        const { data: recordsData, error: recErr } = await supabase
+          .from('attendance_records')
+          .select('student_id, session_id, status')
+          .in('session_id', sessionIds)
+          .eq('status', 'present');
+
+        if (recErr) {
+          console.warn('Error fetching attendance records:', recErr);
+        }
+
+        (recordsData ?? []).forEach((r: any) => {
+          if (r.student_id && r.session_id) {
+            presenceSet.add(`${r.student_id}_${r.session_id}`);
+          }
+        });
+      }
+
+      // 3. Format date headers (dd/mm/yyyy), disambiguating multiple sessions on the same date
+      const dateCountMap = new Map<string, number>();
+      sessions.forEach((s: any) => {
+        const d = formatDDMMYYYY(s.start_time || s.created_at);
+        dateCountMap.set(d, (dateCountMap.get(d) || 0) + 1);
+      });
+
+      const dateSeenMap = new Map<string, number>();
+      const sessionDateHeaders = sessions.map((s: any) => {
+        const d = formatDDMMYYYY(s.start_time || s.created_at);
+        const count = dateCountMap.get(d) || 0;
+        if (count > 1) {
+          const seen = (dateSeenMap.get(d) || 0) + 1;
+          dateSeenMap.set(d, seen);
+          return `${d} (#${seen})`;
+        }
+        return d;
+      });
+
+      // 4. Construct CSV Headers: S/N, Matric No., Full Name, Dates (dd/mm/yyyy), Total Present, Total Sessions, Attendance Rate (%)
+      const headers: (string | number)[] = [
+        'S/N',
+        'Matric No.',
+        'Full Name',
+        ...(sessionDateHeaders.length > 0 ? sessionDateHeaders : ['No Lectures Held']),
+        'Total Present',
+        'Total Sessions',
+        'Attendance Rate (%)',
       ];
 
-      studentStats.forEach((st, idx) => {
-        const onTrack = st.attendance >= 75;
+      // 5. Sort enrolled students consistently by Matric No., then Name
+      const sortedStudents = [...studentStats].sort((a: any, b: any) => {
+        const matA = (a.matric || '').trim().toLowerCase();
+        const matB = (b.matric || '').trim().toLowerCase();
+        if (matA && matB) return matA.localeCompare(matB, undefined, { numeric: true });
+        const nameA = (a.name || '').trim().toLowerCase();
+        const nameB = (b.name || '').trim().toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+
+      // 6. Build Student Rows with 'Present' or 'Absent' under each date
+      const rows: (string | number)[][] = [headers];
+
+      sortedStudents.forEach((st: any, idx: number) => {
+        let presentCount = 0;
+        const dateStatuses = sessions.map((s: any) => {
+          const isPresent = presenceSet.has(`${st.id}_${s.id}`);
+          if (isPresent) {
+            presentCount += 1;
+            return 'Present';
+          }
+          return 'Absent';
+        });
+
+        const totalSessions = sessions.length;
+        const ratePct = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+
         rows.push([
           idx + 1,
           st.matric || 'N/A',
           st.name || 'N/A',
-          st.present,
-          st.total,
-          `${st.attendance}%`,
-          onTrack ? 'On Track (Eligible)' : 'At Risk (< 75%)',
+          ...(sessions.length > 0 ? dateStatuses : ['—']),
+          presentCount,
+          totalSessions,
+          `${ratePct}%`,
         ]);
       });
 
-      const filename = `${selectedCourse.course_code}_Attendance_Report_${dateStr}`;
+      const cleanCode = (selectedCourse.course_code || 'Course').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const dateSlug = formatDDMMYYYY(new Date()).replace(/\//g, '-');
+      const filename = `${cleanCode}_Attendance_Register_${dateSlug}`;
+
       await exportCsv({
         filename,
         rows,
         dialogTitle: `Print / Share ${selectedCourse.course_code} Attendance CSV`,
       });
+    } catch (err: any) {
+      console.error('Failed to export register CSV:', err);
+      Alert.alert('Export Error', err?.message || 'Failed to export attendance register.');
     } finally {
       setExporting(false);
     }

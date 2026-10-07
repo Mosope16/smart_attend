@@ -154,8 +154,17 @@ export default function StudentProfileScreen() {
             </View>
           )}
           <Text style={s.name}>{user?.firstName} {user?.lastName}</Text>
-          <View style={[s.roleBadge, { backgroundColor: colors.primaryDim }]}>
-            <Text style={[s.roleText, { color: colors.primaryText }]}>Student</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 4 }}>
+            <View style={[s.roleBadge, { backgroundColor: colors.primaryDim }]}>
+              <Text style={[s.roleText, { color: colors.primaryText }]}>Student</Text>
+            </View>
+            {Boolean((user?.unsafeMetadata as any)?.level) && (
+              <View style={[s.roleBadge, { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.cardBorder }]}>
+                <Text style={[s.roleText, { color: colors.textMuted }]}>
+                  {(user?.unsafeMetadata as any)?.level}
+                </Text>
+              </View>
+            )}
           </View>
           <Text style={s.subInfo}>Matric: {(user?.unsafeMetadata as any)?.matric_number || '—'}</Text>
           {Boolean((user?.unsafeMetadata as any)?.department) && (

@@ -21,6 +21,7 @@ export interface UserProfile {
   staff_id?: string | null;
   faculty?: string | null;
   department?: string | null;
+  level?: string | null;
   phone?: string | null;
   createdAt?: string;
 }
@@ -317,6 +318,7 @@ export const neonAuth = {
         staff_id: profileData?.staff_id,
         faculty: profileData?.faculty || getFacultyForDepartment(profileData?.department) || null,
         department: profileData?.department,
+        level: profileData?.level || null,
         phone: profileData?.phone,
         createdAt: profileData?.created_at,
       };

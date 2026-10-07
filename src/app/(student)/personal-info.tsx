@@ -8,7 +8,7 @@ import { useUser } from '../../context/AuthContext';
 import { useRouter } from 'expo-router';
 import {
   User, Hash, Phone, ChevronLeft, CheckCircle,
-  Building2, GraduationCap, ChevronDown, Check, Search, X,
+  Building2, GraduationCap, ChevronDown, Check, Search, X, Layers,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -22,6 +22,15 @@ import {
 
 const ff = Platform.OS === 'android';
 
+const ACADEMIC_LEVELS = [
+  { value: '100 Level', label: '100 Level', desc: '1st Year / Freshmen' },
+  { value: '200 Level', label: '200 Level', desc: '2nd Year / Sophomores' },
+  { value: '300 Level', label: '300 Level', desc: '3rd Year / Penultimate' },
+  { value: '400 Level', label: '400 Level', desc: '4th Year / Final Year' },
+  { value: '500 Level', label: '500 Level', desc: '5th Year (Engineering, Law, Tech)' },
+  { value: '600 Level', label: '600 Level', desc: '6th Year (Medicine, Surgery)' },
+];
+
 export default function StudentPersonalInfoScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -33,6 +42,7 @@ export default function StudentPersonalInfoScreen() {
   const [firstName, setFirstName] = useState(user?.firstName ?? '');
   const [lastName, setLastName] = useState(user?.lastName ?? '');
   const [matricNumber, setMatricNumber] = useState(meta.matric_number ?? '');
+  const [level, setLevel] = useState(meta.level ?? '');
   const [department, setDepartment] = useState(meta.department ?? '');
   const [faculty, setFaculty] = useState(
     meta.faculty || getFacultyForDepartment(meta.department) || ''
@@ -40,6 +50,7 @@ export default function StudentPersonalInfoScreen() {
   const [phone, setPhone] = useState(meta.phone ?? '');
   const [saving, setSaving] = useState(false);
 
+  const [levelModal, setLevelModal] = useState(false);
   const [facultyModal, setFacultyModal] = useState(false);
   const [deptModal, setDeptModal] = useState(false);
   const [deptSearch, setDeptSearch] = useState('');
@@ -91,6 +102,7 @@ export default function StudentPersonalInfoScreen() {
         unsafeMetadata: {
           ...meta,
           matric_number: matricNumber.trim(),
+          level: level.trim(),
           faculty: faculty.trim(),
           department: department.trim(),
           phone: phone.trim(),
@@ -200,6 +212,23 @@ export default function StudentPersonalInfoScreen() {
           </View>
         </View>
 
+        {/* Academic Level */}
+        <View style={[s.field, s.fieldBorder]}>
+          <View style={s.fieldIcon}><Layers size={18} color={PRIMARY} /></View>
+          <Pressable style={s.fieldBody} onPress={() => setLevelModal(true)}>
+            <Text style={s.fieldLabel}>Level / Academic Standing</Text>
+            <View style={s.pickerRow}>
+              <Text
+                style={[s.fieldInput, !level && { color: colors.textMuted }]}
+                numberOfLines={1}
+              >
+                {level || 'Select level (e.g. 100 Level)'}
+              </Text>
+              <ChevronDown size={16} color={colors.textMuted} />
+            </View>
+          </Pressable>
+        </View>
+
         {/* Faculty */}
         <View style={[s.field, s.fieldBorder]}>
           <View style={s.fieldIcon}><GraduationCap size={18} color={PRIMARY} /></View>
@@ -240,6 +269,54 @@ export default function StudentPersonalInfoScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* Level Modal */}
+      <Modal visible={levelModal} transparent animationType="slide" onRequestClose={() => setLevelModal(false)}>
+        <Pressable style={s.modalBackdrop} onPress={() => setLevelModal(false)} />
+        <View style={[s.modalSheet, { backgroundColor: colors.card }]}>
+          <View style={s.modalHeader}>
+            <View>
+              <Text style={[s.modalTitle, { color: colors.text }]}>Select Level</Text>
+              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+                100L – 600L Undergraduate
+              </Text>
+            </View>
+            <Pressable onPress={() => setLevelModal(false)} style={s.modalClose}>
+              <Text style={{ color: PRIMARY, fontWeight: '700', fontSize: 15 }}>Done</Text>
+            </Pressable>
+          </View>
+          <FlatList
+            data={ACADEMIC_LEVELS}
+            keyExtractor={(item) => item.value}
+            renderItem={({ item }) => {
+              const isSelected = item.value === level;
+              return (
+                <TouchableOpacity
+                  style={[
+                    s.deptItem,
+                    { borderBottomColor: colors.cardBorder },
+                    isSelected && { backgroundColor: colors.primaryDim },
+                  ]}
+                  onPress={() => {
+                    setLevel(item.value);
+                    setLevelModal(false);
+                  }}
+                >
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={[s.deptItemText, { color: isSelected ? PRIMARY : colors.text, fontWeight: '600' }]}>
+                      {item.label}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+                      {item.desc}
+                    </Text>
+                  </View>
+                  {isSelected && <Check size={18} color={PRIMARY} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
+      </Modal>
 
       {/* Faculty Modal */}
       <Modal visible={facultyModal} transparent animationType="slide" onRequestClose={() => setFacultyModal(false)}>
