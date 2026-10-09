@@ -9,7 +9,7 @@ import { User, Lock, Mail, Hash, GraduationCap, Eye, EyeOff } from 'lucide-react
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatFriendlyAuthError } from '../../lib/auth';
+import { formatFriendlyAuthError, isAllowedDomain, ALLOWED_EMAIL_DOMAIN } from '../../lib/auth';
 
 const ff = Platform.OS === 'android';
 
@@ -43,6 +43,11 @@ export default function RegisterScreen() {
     if (!isLoaded) return;
     if (!name.trim() || !emailAddress.trim() || !password) {
       setError('Please fill in all required fields.');
+      return;
+    }
+    const trimmedEmail = emailAddress.trim().toLowerCase();
+    if (!isAllowedDomain(trimmedEmail)) {
+      setError(`Access restricted: Only official Redeemer's University email addresses (@${ALLOWED_EMAIL_DOMAIN}) are allowed to create an account.`);
       return;
     }
     if (isStudent && !matricNumber.trim()) {
@@ -139,7 +144,15 @@ export default function RegisterScreen() {
         </View>
         <View style={s.inputRow}>
           <Mail size={20} color={colors.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={s.input} autoCapitalize="none" value={emailAddress} placeholder="Email Address" placeholderTextColor={colors.textMuted} keyboardType="email-address" onChangeText={setEmailAddress} />
+          <TextInput
+            style={s.input}
+            autoCapitalize="none"
+            value={emailAddress}
+            placeholder="RUN Email (e.g. name@run.edu.ng)"
+            placeholderTextColor={colors.textMuted}
+            keyboardType="email-address"
+            onChangeText={setEmailAddress}
+          />
         </View>
         <View style={s.inputRow}>
           <Hash size={20} color={colors.textMuted} style={{ marginRight: 10 }} />

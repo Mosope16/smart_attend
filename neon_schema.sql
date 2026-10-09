@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS public.users (
   device_id TEXT,
   device_name TEXT,
   device_updated_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT check_run_email_domain CHECK (email ILIKE '%@run.edu.ng' OR email ILIKE '%.run.edu.ng')
 );
 
 -- 2. Create Courses Table

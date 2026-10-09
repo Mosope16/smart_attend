@@ -12,6 +12,20 @@ const AUTH_USER_KEY = 'attendance_neon_user';
 const AUTH_TOKEN_KEY = 'attendance_neon_token';
 const AUTH_COOKIE_KEY = 'attendance_neon_cookie';
 
+export const ALLOWED_EMAIL_DOMAIN = 'run.edu.ng';
+
+/**
+ * Validates that an email address belongs strictly to the Redeemer's University domain (run.edu.ng or *.run.edu.ng).
+ */
+export function isAllowedDomain(email: string | null | undefined): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const normalized = email.trim().toLowerCase();
+  return (
+    normalized.endsWith(`@${ALLOWED_EMAIL_DOMAIN}`) ||
+    normalized.endsWith(`.${ALLOWED_EMAIL_DOMAIN}`)
+  );
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -166,6 +180,14 @@ export const neonAuth = {
     try {
       const trimmedEmail = email.trim().toLowerCase();
 
+      // Enforce Redeemer's University domain restriction
+      if (!isAllowedDomain(trimmedEmail)) {
+        return {
+          user: null,
+          error: `Access restricted: Only official Redeemer's University email addresses (@${ALLOWED_EMAIL_DOMAIN}) are permitted to create an account.`,
+        };
+      }
+
       // 1. Better Auth Sign-Up on Neon
       const res = await fetch(`${NEON_AUTH_URL}/sign-up/email`, {
         method: 'POST',
@@ -249,7 +271,7 @@ export const neonAuth = {
         }
 
         if (studentMatch?.email) {
-          emailToUse = studentMatch.email;
+          emailToUse = studentMatch.email.trim().toLowerCase();
         } else {
           const { data: lecturerMatch, error: lErr } = await db
             .from('users')
@@ -265,9 +287,22 @@ export const neonAuth = {
           }
 
           if (lecturerMatch?.email) {
-            emailToUse = lecturerMatch.email;
+            emailToUse = lecturerMatch.email.trim().toLowerCase();
+          } else {
+            return {
+              user: null,
+              error: 'No account found with this Matric Number or Staff ID.',
+            };
           }
         }
+      }
+
+      // Enforce Redeemer's University domain restriction
+      if (!isAllowedDomain(emailToUse)) {
+        return {
+          user: null,
+          error: `Access restricted: Only accounts with an official Redeemer's University email (@${ALLOWED_EMAIL_DOMAIN}) are permitted to sign in.`,
+        };
       }
 
       // 1. Better Auth Sign-In on Neon

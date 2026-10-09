@@ -8,7 +8,7 @@ import { User, Lock, GraduationCap, Eye, EyeOff } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatFriendlyAuthError } from '../../lib/auth';
+import { formatFriendlyAuthError, isAllowedDomain, ALLOWED_EMAIL_DOMAIN } from '../../lib/auth';
 
 const ff = Platform.OS === 'android';
 
@@ -31,6 +31,11 @@ export default function LoginScreen() {
   const onSignInPress = async () => {
     if (!isLoaded || !identifier.trim() || !password) {
       setError('Please enter your credentials');
+      return;
+    }
+    const trimmedId = identifier.trim().toLowerCase();
+    if (trimmedId.includes('@') && !isAllowedDomain(trimmedId)) {
+      setError(`Access restricted: Only official Redeemer's University email addresses (@${ALLOWED_EMAIL_DOMAIN}) are permitted to sign in.`);
       return;
     }
     setError('');
@@ -104,7 +109,7 @@ export default function LoginScreen() {
             style={s.input}
             autoCapitalize="none"
             value={identifier}
-            placeholder={isStudent ? 'Email or Matric Number' : 'Email or Staff ID'}
+            placeholder={isStudent ? 'RUN Email (@run.edu.ng) or Matric No.' : 'RUN Email (@run.edu.ng) or Staff ID'}
             placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             onChangeText={setIdentifier}
