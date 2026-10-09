@@ -328,7 +328,7 @@ class RealtimeChannel {
         if (parts.length === 2) {
           const col = parts[0].trim();
           const val = parts[1].trim();
-          whereClause = `WHERE "${col}" = '${val}'`;
+          whereClause = `WHERE "${col}" = '${val.replace(/'/g, "''")}'`;
         }
       }
 
