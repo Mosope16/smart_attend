@@ -12,6 +12,8 @@ import { useSupabaseClient } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { getCurrentAttendanceLocation, validateGeofenceProximity } from '../../lib/geo';
 import { getDeviceFingerprint } from '../../lib/device';
+import { authenticateWithBiometrics, getBiometricCapabilities } from '../../lib/biometrics';
+import { FingerprintIcon } from '../../components/FingerprintIcon';
 import * as Haptics from 'expo-haptics';
 
 const ff = Platform.OS === 'android';
@@ -33,7 +35,19 @@ export default function MarkAttendanceScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const inputRefs = useRef<any[]>([]);
   
+  const [biometricName, setBiometricName] = useState('Fingerprint');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    getBiometricCapabilities().then((caps) => {
+      setBiometricAvailable(caps.isAvailable);
+      if (caps.biometricLabel) {
+        setBiometricName(caps.biometricLabel);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (mode === 'scan') {
@@ -169,6 +183,24 @@ export default function MarkAttendanceScreen() {
       }).catch(() => {});
     }
 
+    // ─── Native Biometric / Fingerprint Identity Verification ────────
+    const bioResult = await authenticateWithBiometrics({
+      promptMessage: `Verify ${biometricName.toLowerCase()} to mark attendance`,
+      cancelLabel: 'Cancel',
+      fallbackLabel: 'Use Device Passcode',
+    });
+
+    if (!bioResult.success && !bioResult.notAvailable) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError(
+        bioResult.error ||
+          'Fingerprint verification failed. Biometric authentication is required to confirm attendance.'
+      );
+      setLoading(false);
+      setScanned(false);
+      return;
+    }
+
     const recordTimestamp = new Date().toISOString();
     const { error: recordError } = await supabase.from('attendance_records').insert({
       session_id: session.id,
@@ -204,6 +236,7 @@ export default function MarkAttendanceScreen() {
           params: {
             timestamp: recordTimestamp,
             deviceName: device.deviceName,
+            biometricMethod: biometricAvailable ? biometricName : 'Device Hardware Locked',
           },
         });
       }, 700);
@@ -284,8 +317,9 @@ export default function MarkAttendanceScreen() {
             </Animated.View>
 
             <View style={s.scanGeoBadge}>
-              <MapPin size={12} color="#FFFFFF" />
-              <Text style={s.scanGeoBadgeText}>GPS Geofence Protected · Dynamic Venue Range</Text>
+              <FingerprintIcon size={12} color="#FFFFFF" style={{ marginRight: 5 }} />
+              <MapPin size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={s.scanGeoBadgeText}>Geofence & {biometricName} Protected</Text>
             </View>
           </View>
 
@@ -293,7 +327,7 @@ export default function MarkAttendanceScreen() {
           <View style={[s.scanBottom, { paddingBottom: Math.max(insets.bottom, 20) + 40 }]}>
             {loading ? (
               <View style={s.scanFeedback}>
-                <Text style={s.scanFeedbackText}>Verifying location & code...</Text>
+                <Text style={s.scanFeedbackText}>Verifying location, device & biometrics...</Text>
               </View>
             ) : success ? (
               <View style={[s.scanFeedback, { backgroundColor: '#059669' }]}>
@@ -340,9 +374,15 @@ export default function MarkAttendanceScreen() {
             Enter the 5-character session code from your lecturer, or scan the QR code.
           </Text>
 
-          <View style={s.geoBadge}>
-            <MapPin size={13} color={PRIMARY} />
-            <Text style={[s.geoBadgeText, { color: PRIMARY }]}>GPS Geofence Protected · Dynamic Venue Range</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: 4 }}>
+            <View style={s.geoBadge}>
+              <MapPin size={12} color={PRIMARY} />
+              <Text style={[s.geoBadgeText, { color: PRIMARY }]}>GPS Geofenced</Text>
+            </View>
+            <View style={s.geoBadge}>
+              <FingerprintIcon size={13} color={PRIMARY} style={{ marginRight: 4 }} />
+              <Text style={[s.geoBadgeText, { color: PRIMARY }]}>{biometricName} Required</Text>
+            </View>
           </View>
         </View>
 

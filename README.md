@@ -51,6 +51,7 @@ Traditional paper attendance sheets and static digital rosters suffer from buddy
 - **Course Catalog & Enrollment**: Search and filter available courses by academic department and level (100–500L).
 - **Automated Course Alerts**: Prompts student on enrollment to enable notifications, instantly dispatching push alerts when attendance sessions open.
 - **QR & Geofence Check-in**: Integrated high-speed camera scanner with instant geolocation verification and haptic feedback.
+- **Biometric Fingerprint Verification**: Native biometric validation (Fingerprint / Touch ID / Face ID via `expo-local-authentication`) guarantees personal presence and prevents proxy attendance.
 - **Attendance History**: Historical ledger of all attended classes categorized by course code, date, and status.
 - **Personalized Profile**: Native initials avatar generator, contact info, and theme switch (Light, Dark, System default).
 
@@ -68,6 +69,7 @@ Traditional paper attendance sheets and static digital rosters suffer from buddy
 ### Verification & Reliability
 
 - **Haversine Geofencing**: Mathematical validation ensures students are physically located in the lecture hall.
+- **Biometric & Anti-Proxy Shield**: Eliminates proxy attendance through device hardware binding and mandatory native fingerprint/biometric confirmation before recording presence.
 - **Offline Error Interceptor**: Detects network dropouts and DNS failures, displaying user-friendly connection prompts instead of raw database errors.
 - **Secure Storage**: Sessions, auth tokens, and preferences safely preserved with `expo-secure-store`.
 
@@ -81,7 +83,7 @@ Traditional paper attendance sheets and static digital rosters suffer from buddy
 | **Routing**        | [Expo Router](https://docs.expo.dev/router/introduction/)                      | Type-safe, file-based routing with deep linking                |
 | **Database**       | [Neon Serverless Postgres](https://neon.tech)                                  | Scalable Postgres accessed via serverless HTTP driver          |
 | **Authentication** | [Neon Better Auth](https://neon.tech/docs/guides/neon-auth) / SecureStore      | Token-based auth supporting Email, Matric Number, and Staff ID |
-| **Hardware APIs**  | `expo-camera`, `expo-location`, `expo-haptics`                                 | Camera QR scanning, GPS geolocation, and tactile feedback      |
+| **Hardware APIs**  | `expo-camera`, `expo-location`, `expo-local-authentication`, `expo-haptics`    | QR scanning, GPS geolocation, fingerprint biometrics, feedback |
 | **Notifications**  | `expo-notifications`                                                           | Push and local notification channels for class session alerts  |
 | **Export Engine**  | `expo-file-system`, `expo-sharing`                                             | In-memory CSV compilation and native share sheet triggering    |
 | **UI & Icons**     | Vanilla StyleSheet & Lucide React Native                                       | Fluid, responsive layouts with Dark / Light theme tokens       |

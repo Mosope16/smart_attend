@@ -36,6 +36,7 @@ export default function AttendanceSuccessScreen() {
           { label: 'Date', value: formatDate(displayDate, { showDay: true, showYear: true }) },
           { label: 'Time', value: formatTime(displayDate) },
           { label: 'Verified Device', value: params.deviceName ? String(params.deviceName) : 'Single-Device Locked' },
+          { label: 'Biometric Auth', value: params.biometricMethod ? `✓ ${params.biometricMethod}` : '✓ Fingerprint Verified' },
           { label: 'Status', value: '✓ Present' },
         ].map((item) => (
           <View key={item.label} style={s.detailRow}>

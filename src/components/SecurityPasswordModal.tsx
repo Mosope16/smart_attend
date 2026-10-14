@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  Switch,
 } from 'react-native';
 import {
   Lock,
@@ -26,6 +27,14 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { FingerprintIcon } from './FingerprintIcon';
+import {
+  getBiometricCapabilities,
+  isBiometricEnabled,
+  setBiometricEnabled,
+  authenticateWithBiometrics,
+  BiometricCapabilities,
+} from '../lib/biometrics';
 
 const ff = Platform.OS === 'android';
 
@@ -59,6 +68,63 @@ export default function SecurityPasswordModal({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const [biometricEnabled, setBiometricEnabledState] = useState(false);
+  const [biometricCaps, setBiometricCaps] = useState<BiometricCapabilities | null>(null);
+  const [bioTesting, setBioTesting] = useState(false);
+  const [bioFeedback, setBioFeedback] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (visible) {
+      getBiometricCapabilities().then((caps) => {
+        setBiometricCaps(caps);
+      });
+      isBiometricEnabled().then((enabled) => {
+        setBiometricEnabledState(enabled);
+      });
+      setBioFeedback(null);
+    }
+  }, [visible]);
+
+  const handleToggleBiometrics = async (val: boolean) => {
+    setBioFeedback(null);
+    if (val) {
+      if (!biometricCaps?.isAvailable) {
+        setBioFeedback('No biometric hardware or enrolled fingerprint found on this device.');
+        return;
+      }
+      setBioTesting(true);
+      const res = await authenticateWithBiometrics({
+        promptMessage: 'Scan fingerprint to enable biometric protection',
+      });
+      setBioTesting(false);
+      if (res.success) {
+        await setBiometricEnabled(true);
+        setBiometricEnabledState(true);
+        setBioFeedback('✓ Fingerprint verification enabled successfully!');
+      } else {
+        setBioFeedback(res.error || 'Verification cancelled or failed.');
+      }
+    } else {
+      await setBiometricEnabled(false);
+      setBiometricEnabledState(false);
+      setBioFeedback('Biometric authentication disabled.');
+    }
+  };
+
+  const handleTestSensor = async () => {
+    setBioFeedback(null);
+    setBioTesting(true);
+    const res = await authenticateWithBiometrics({
+      promptMessage: `Testing ${biometricCaps?.biometricLabel || 'Fingerprint'} Sensor`,
+    });
+    setBioTesting(false);
+    if (res.success) {
+      setBioFeedback('✓ Sensor test successful: Fingerprint verified!');
+    } else {
+      setBioFeedback(res.error || 'Sensor test unsuccessful.');
+    }
+  };
+
   const resetForm = () => {
     setCurrentPassword('');
     setNewPassword('');
@@ -68,6 +134,7 @@ export default function SecurityPasswordModal({
     setShowConfirm(false);
     setError(null);
     setSuccess(null);
+    setBioFeedback(null);
   };
 
   const handleClose = () => {
@@ -339,18 +406,59 @@ export default function SecurityPasswordModal({
                       <Text style={[s.badgeText, { color: '#16A34A' }]}>Secured</Text>
                     </View>
                   </View>
+                  {/* Biometric / Fingerprint Control */}
                   <View style={[s.infoItem, { borderBottomWidth: 0, paddingBottom: 0 }]}>
-                    <Lock size={16} color={colors.textMuted} style={{ marginRight: 10 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.infoItemTitle}>Biometric / PIN Screen Lock</Text>
+                    <FingerprintIcon size={18} color={themeAccent} style={{ marginRight: 10 }} />
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={s.infoItemTitle}>
+                        {biometricCaps?.biometricLabel || 'Fingerprint Verification'}
+                      </Text>
                       <Text style={s.infoItemSub}>
-                        Device-level biometric lock protected by OS keychain
+                        {biometricCaps?.isAvailable
+                          ? (biometricEnabled ? 'Enforced for attendance & login' : 'Tap switch to activate')
+                          : 'No biometric credentials enrolled in OS'}
                       </Text>
                     </View>
-                    <View style={s.badge}>
-                      <Text style={[s.badgeText, { color: themeAccent }]}>Active</Text>
-                    </View>
+                    <Switch
+                      value={biometricEnabled}
+                      onValueChange={handleToggleBiometrics}
+                      trackColor={{ false: isDark ? '#374151' : '#D1D5DB', true: themeAccent }}
+                      thumbColor="#FFFFFF"
+                      disabled={bioTesting}
+                    />
                   </View>
+
+                  {/* Feedback & Sensor Test */}
+                  {bioFeedback ? (
+                    <View style={{ marginTop: 10, padding: 8, backgroundColor: isDark ? '#1F2937' : '#F3F4F6', borderRadius: 8 }}>
+                      <Text style={{ fontSize: 12, color: bioFeedback.startsWith('✓') ? '#16A34A' : '#DC2626', fontWeight: '500' }}>
+                        {bioFeedback}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {biometricCaps?.isAvailable && (
+                    <Pressable
+                      onPress={handleTestSensor}
+                      disabled={bioTesting}
+                      style={{
+                        marginTop: 10,
+                        alignSelf: 'flex-start',
+                        paddingVertical: 5,
+                        paddingHorizontal: 12,
+                        borderRadius: 8,
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <FingerprintIcon size={13} color={themeAccent} />
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: themeAccent }}>
+                        {bioTesting ? 'Scanning...' : 'Test Fingerprint Sensor'}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               </ScrollView>
             </View>
