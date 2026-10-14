@@ -6,6 +6,7 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { NotificationProvider } from '../context/NotificationContext';
 import { observability } from '../lib/observability';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 observability.init();
 
@@ -35,7 +36,9 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <NotificationProvider>
-            <InitialLayout />
+            <ErrorBoundary>
+              <InitialLayout />
+            </ErrorBoundary>
           </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>

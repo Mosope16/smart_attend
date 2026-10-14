@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { parseSafeDate } from '../../lib/dateUtils';
+import { DatabaseCourse, DatabaseAttendanceSession, DatabaseAttendanceRecord } from '../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -23,7 +24,7 @@ export default function StudentDashboard() {
   const PRIMARY = colors.primary;
   const { isPermissionGranted, promptForCourseAccess, checkActiveSessionsForEnrolledCourses } = useNotifications();
 
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<Pick<DatabaseCourse, 'id' | 'course_code' | 'course_title'>[]>([]);
   const [overallPct, setOverallPct] = useState<number | null>(null);
   const [weekCount, setWeekCount] = useState<number>(0);
   const [courseStats, setCourseStats] = useState<Record<string, { present: number; total: number }>>({});
@@ -75,12 +76,13 @@ export default function StudentDashboard() {
     setLoading(true);
 
     // Enrolled courses
-    const { data: enrollments } = await supabase
+    const { data: enrollmentRows } = await supabase
       .from('enrollments')
       .select('course:course_id ( id, course_code, course_title )')
       .eq('student_id', user.id);
 
-    const enrolledCourses = enrollments?.map((e: any) => e.course) ?? [];
+    const enrolledCourses: Pick<DatabaseCourse, 'id' | 'course_code' | 'course_title'>[] =
+      (enrollmentRows as { course: Pick<DatabaseCourse, 'id' | 'course_code' | 'course_title'> }[])?.map((e) => e.course).filter(Boolean) ?? [];
     setCourses(enrolledCourses);
 
     if (enrolledCourses.length === 0) {
@@ -88,25 +90,28 @@ export default function StudentDashboard() {
       return;
     }
 
-    const courseIds = enrolledCourses.map((c: any) => c.id);
+    const courseIds = enrolledCourses.map((c) => c.id);
 
     // All sessions for enrolled courses
-    const { data: sessions } = await supabase
+    const { data: sessionRows } = await supabase
       .from('attendance_sessions')
       .select('id, course_id')
       .in('course_id', courseIds);
 
-    const allSessionIds = sessions?.map((s: any) => s.id) ?? [];
+    const sessions = (sessionRows as Pick<DatabaseAttendanceSession, 'id' | 'course_id'>[]) ?? [];
+    const allSessionIds = sessions.map((s) => s.id);
 
     // Student's attendance records
-    const { data: records } = await supabase
+    const { data: recordRows } = await supabase
       .from('attendance_records')
       .select('session_id, status, timestamp')
       .eq('student_id', user.id)
       .in('session_id', allSessionIds);
 
+    const records = (recordRows as Pick<DatabaseAttendanceRecord, 'session_id' | 'status' | 'timestamp'>[]) ?? [];
+
     // Overall attendance %
-    const presentTotal = records?.filter((r: any) => r.status === 'present').length ?? 0;
+    const presentTotal = records.filter((r) => r.status === 'present').length;
     const pct = allSessionIds.length > 0
       ? Math.round((presentTotal / allSessionIds.length) * 100)
       : null;
@@ -116,19 +121,19 @@ export default function StudentDashboard() {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
-    const thisWeek = records?.filter((r: any) => parseSafeDate(r.timestamp) >= weekStart).length ?? 0;
+    const thisWeek = records.filter((r) => parseSafeDate(r.timestamp) >= weekStart).length;
     setWeekCount(thisWeek);
 
     // Per-course stats: Pre-index session-to-course mapping and attendance records for O(N) lookup
     const sessionToCourse = new Map<string, string>();
     const courseSessionCount = new Map<string, number>();
-    (sessions ?? []).forEach((s: any) => {
+    sessions.forEach((s) => {
       sessionToCourse.set(s.id, s.course_id);
       courseSessionCount.set(s.course_id, (courseSessionCount.get(s.course_id) || 0) + 1);
     });
 
     const coursePresentCount = new Map<string, number>();
-    (records ?? []).forEach((r: any) => {
+    records.forEach((r) => {
       if (r.status === 'present') {
         const cId = sessionToCourse.get(r.session_id);
         if (cId) {

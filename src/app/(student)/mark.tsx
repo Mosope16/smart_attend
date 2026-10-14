@@ -15,6 +15,7 @@ import { getDeviceFingerprint } from '../../lib/device';
 import { authenticateWithBiometrics, getBiometricCapabilities } from '../../lib/biometrics';
 import { FingerprintIcon } from '../../components/FingerprintIcon';
 import * as Haptics from 'expo-haptics';
+import { DatabaseAttendanceSession, DatabaseCourse } from '../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -90,12 +91,14 @@ export default function MarkAttendanceScreen() {
     setSuccess('');
 
     const now = new Date().toISOString();
-    const { data: session, error: sessionError } = await supabase
+    const { data: sessionData, error: sessionError } = await supabase
       .from('attendance_sessions')
       .select('id, course_id, latitude, longitude, radius_meters, course:course_id(course_code, course_title)')
       .eq('attendance_code', attendanceCode.toUpperCase())
       .gt('end_time', now)
       .single();
+
+    const session = sessionData as (DatabaseAttendanceSession & { course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null }) | null;
 
     if (sessionError || !session) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -114,7 +117,7 @@ export default function MarkAttendanceScreen() {
       .single();
 
     if (!enrollment) {
-      const courseCode = (session as any)?.course?.course_code || 'this course';
+      const courseCode = session.course?.course_code || 'this course';
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       setError(`You are not enrolled in ${courseCode}. Please enroll in this course first to mark attendance.`);
       setLoading(false);
@@ -133,7 +136,7 @@ export default function MarkAttendanceScreen() {
         return;
       }
 
-      const allowedRadius = (session as any).radius_meters || 50;
+      const allowedRadius = session.radius_meters || 50;
       const geo = validateGeofenceProximity(
         locResult.coords.latitude,
         locResult.coords.longitude,

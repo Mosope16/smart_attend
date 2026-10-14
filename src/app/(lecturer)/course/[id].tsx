@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput, FlatList,
+  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput, FlatList, RefreshControl,
 } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -881,6 +881,14 @@ export default function LecturerCourseDetails() {
             <Users size={32} color={colors.textMuted} />
             <Text style={s.emptyText}>No students enrolled yet.</Text>
           </View>
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={SECONDARY}
+            colors={[SECONDARY]}
+          />
         }
         style={s.scroll}
         contentContainerStyle={[

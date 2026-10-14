@@ -13,6 +13,7 @@ import { formatDate, formatTime } from '../../../lib/dateUtils';
 import { getCurrentAttendanceLocation, validateGeofenceProximity } from '../../../lib/geo';
 import { getDeviceFingerprint } from '../../../lib/device';
 import { authenticateWithBiometrics } from '../../../lib/biometrics';
+import { DatabaseCourse, DatabaseAttendanceRecord, DatabaseAttendanceSession } from '../../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -24,9 +25,9 @@ export default function StudentCourseDetails() {
   const supabase = useSupabaseClient();
   const { colors, isDark } = useTheme();
 
-  const [course, setCourse] = useState<any>(null);
+  const [course, setCourse] = useState<DatabaseCourse | null>(null);
   const [attendanceCode, setAttendanceCode] = useState('');
-  const [records, setRecords] = useState<any[]>([]);
+  const [records, setRecords] = useState<DatabaseAttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
@@ -83,13 +84,15 @@ export default function StudentCourseDetails() {
     setMessage({ text: '', type: '' });
 
     const now = new Date().toISOString();
-    const { data: session, error: sessionError } = await supabase
+    const { data: sessionData, error: sessionError } = await supabase
       .from('attendance_sessions')
       .select('id, latitude, longitude, radius_meters')
       .eq('course_id', id)
       .eq('attendance_code', attendanceCode.toUpperCase())
       .gt('end_time', now)
       .single();
+
+    const session = sessionData as DatabaseAttendanceSession | null;
 
     if (sessionError || !session) {
       setMessage({ text: 'Invalid or expired code. Try again.', type: 'error' });
@@ -106,7 +109,7 @@ export default function StudentCourseDetails() {
         return;
       }
 
-      const allowedRadius = (session as any).radius_meters || 50;
+      const allowedRadius = session.radius_meters || 50;
       const geo = validateGeofenceProximity(
         locResult.coords.latitude,
         locResult.coords.longitude,

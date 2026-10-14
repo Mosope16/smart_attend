@@ -10,6 +10,7 @@ import { useSupabaseClient } from '../../lib/supabase';
 import { fetchLecturerCourses } from '../../lib/courseService';
 import { useTheme } from '../../context/ThemeContext';
 import { formatDate, formatTime } from '../../lib/dateUtils';
+import { DatabaseAttendanceSession } from '../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -20,8 +21,8 @@ export default function SessionsScreen() {
   const supabase = useSupabaseClient();
   const SECONDARY = colors.secondary;
 
-  const [activeSessions, setActiveSessions] = useState<any[]>([]);
-  const [pastSessions, setPastSessions] = useState<any[]>([]);
+  const [activeSessions, setActiveSessions] = useState<DatabaseAttendanceSession[]>([]);
+  const [pastSessions, setPastSessions] = useState<DatabaseAttendanceSession[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
@@ -73,7 +74,7 @@ export default function SessionsScreen() {
       return;
     }
 
-    const courseIds = lecturerCourses.map((c: any) => c.id);
+    const courseIds = lecturerCourses.map((c) => c.id);
 
     const { data: allSessions } = await supabase
       .from('attendance_sessions')
@@ -87,8 +88,9 @@ export default function SessionsScreen() {
       .order('start_time', { ascending: false });
 
     if (allSessions) {
-      setActiveSessions(allSessions.filter((s: any) => s.end_time > now));
-      setPastSessions(allSessions.filter((s: any) => s.end_time <= now));
+      const typedSessions = allSessions as DatabaseAttendanceSession[];
+      setActiveSessions(typedSessions.filter((s) => s.end_time > now));
+      setPastSessions(typedSessions.filter((s) => s.end_time <= now));
     }
     setLoading(false);
   };
@@ -118,7 +120,7 @@ export default function SessionsScreen() {
               <Text style={s.emptyText}>No active sessions right now.</Text>
             </View>
           ) : (
-            activeSessions.map((session: any) => (
+            activeSessions.map((session) => (
               <View key={session.id} style={s.activeCard}>
                 <View style={s.activeLeft}>
                   <View style={s.liveRow}>
@@ -147,7 +149,7 @@ export default function SessionsScreen() {
             </View>
           ) : (
             <View style={{ gap: 10 }}>
-              {pastSessions.map((session: any) => {
+              {pastSessions.map((session) => {
                 const total = session.attendance_records?.length ?? 0;
                 return (
                   <View key={session.id} style={s.pastCard}>

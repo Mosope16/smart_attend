@@ -80,3 +80,19 @@ export interface StudentRosterItem {
     matric_number?: string | null;
   } | null;
 }
+
+export interface StudentReportStat {
+  id: string;
+  name: string;
+  matric: string;
+  present: number;
+  total: number;
+  attendance: number;
+}
+
+export interface AttendanceHistoryItem {
+  id: string;
+  course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null;
+  status: 'present' | 'absent';
+  timestamp: string;
+}

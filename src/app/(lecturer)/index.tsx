@@ -22,7 +22,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useSupabaseClient } from "../../lib/supabase";
-import { fetchLecturerCourses } from "../../lib/courseService";
+import { fetchLecturerCourses, LecturerCourse } from "../../lib/courseService";
+import { DatabaseEnrollment, DatabaseAttendanceSession, DatabaseAttendanceRecord } from "../../types/database";
 const ff = Platform.OS === "android";
 
 export default function LecturerDashboard() {
@@ -32,7 +33,7 @@ export default function LecturerDashboard() {
   const supabase = useSupabaseClient();
   const { colors, isDark } = useTheme();
 
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<LecturerCourse[]>([]);
   const [courseStats, setCourseStats] = useState<
     Record<
       string,
@@ -107,36 +108,38 @@ export default function LecturerDashboard() {
       return;
     }
 
-    const courseIds = coursesList.map((c: any) => c.id);
+    const courseIds = coursesList.map((c) => c.id);
 
     // 2. Fetch all enrollments for these courses
-    const { data: enrollments } = await supabase
+    const { data: enrollmentRows } = await supabase
       .from("enrollments")
       .select("course_id, student_id")
       .in("course_id", courseIds);
+    const enrollments = (enrollmentRows as Pick<DatabaseEnrollment, 'course_id' | 'student_id'>[]) ?? [];
 
     // 3. Fetch all sessions for these courses
-    const { data: sessions } = await supabase
+    const { data: sessionRows } = await supabase
       .from("attendance_sessions")
       .select("id, course_id, end_time")
       .in("course_id", courseIds);
+    const sessions = (sessionRows as Pick<DatabaseAttendanceSession, 'id' | 'course_id' | 'end_time'>[]) ?? [];
 
-    const sessionIds = sessions?.map((s: any) => s.id) ?? [];
+    const sessionIds = sessions.map((s) => s.id);
 
     // 4. Fetch all attendance records for these sessions
-    let records: any[] = [];
+    let records: Pick<DatabaseAttendanceRecord, 'session_id' | 'status'>[] = [];
     if (sessionIds.length > 0) {
       const { data } = await supabase
         .from("attendance_records")
         .select("session_id, status")
         .in("session_id", sessionIds);
-      records = data ?? [];
+      records = (data as Pick<DatabaseAttendanceRecord, 'session_id' | 'status'>[]) ?? [];
     }
 
     // Process stats
-    const uniqueStudents = new Set(enrollments?.map((e: any) => e.student_id)).size;
+    const uniqueStudents = new Set(enrollments.map((e) => e.student_id)).size;
     setTotalStudents(uniqueStudents);
-    setTotalSessions(sessions?.length ?? 0);
+    setTotalSessions(sessions.length);
 
     // Per course stats
     const courseStatsMap: Record<
@@ -147,14 +150,14 @@ export default function LecturerDashboard() {
 
     // Pre-index enrollments, sessions, and attendance records for O(N) linear time processing
     const enrollmentCounts = new Map<string, number>();
-    (enrollments ?? []).forEach((e: any) => {
+    enrollments.forEach((e) => {
       enrollmentCounts.set(e.course_id, (enrollmentCounts.get(e.course_id) || 0) + 1);
     });
 
     const sessionToCourse = new Map<string, string>();
     const courseSessionCount = new Map<string, number>();
     const courseHasActiveSession = new Map<string, boolean>();
-    (sessions ?? []).forEach((s: any) => {
+    sessions.forEach((s) => {
       sessionToCourse.set(s.id, s.course_id);
       courseSessionCount.set(s.course_id, (courseSessionCount.get(s.course_id) || 0) + 1);
       if (s.end_time > now) {
@@ -163,7 +166,7 @@ export default function LecturerDashboard() {
     });
 
     const coursePresentCount = new Map<string, number>();
-    records.forEach((r: any) => {
+    records.forEach((r) => {
       if (r.status === 'present') {
         const cId = sessionToCourse.get(r.session_id);
         if (cId) {

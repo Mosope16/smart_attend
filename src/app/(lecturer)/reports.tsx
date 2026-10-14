@@ -1,16 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Platform, StatusBar, ActivityIndicator, Pressable, Alert,
+  View, Text, ScrollView, StyleSheet, Platform, StatusBar, ActivityIndicator, Pressable, Alert, FlatList, RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Download, BarChart3 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient, executeSql } from '../../lib/supabase';
-import { fetchLecturerCourses } from '../../lib/courseService';
+import { fetchLecturerCourses, LecturerCourse } from '../../lib/courseService';
 import { useTheme } from '../../context/ThemeContext';
 import { exportCsv } from '../../lib/exportCsv';
-import { formatDate, formatTime, formatDDMMYYYY } from '../../lib/dateUtils';
+import { formatDDMMYYYY } from '../../lib/dateUtils';
+import { StudentReportStat, DatabaseAttendanceSession, DatabaseAttendanceRecord } from '../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -21,10 +22,11 @@ export default function ReportsScreen() {
   const supabase = useSupabaseClient();
   const SECONDARY = colors.secondary;
 
-  const [courses, setCourses] = useState<any[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<any>(null);
-  const [studentStats, setStudentStats] = useState<any[]>([]);
+  const [courses, setCourses] = useState<LecturerCourse[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<LecturerCourse | null>(null);
+  const [studentStats, setStudentStats] = useState<StudentReportStat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   useFocusEffect(
@@ -35,38 +37,52 @@ export default function ReportsScreen() {
     }, [isDark, SECONDARY, user?.id])
   );
 
-  const fetchCourses = async () => {
+  const fetchCourses = async (isRefresh = false) => {
     if (!user) return;
-    setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const data = await fetchLecturerCourses(user.id);
     if (data && data.length > 0) {
       setCourses(data);
-      setSelectedCourse(data[0]);
-      await fetchStats(data[0].id);
+      const activeCurrent = selectedCourse
+        ? data.find((c) => c.id === selectedCourse.id) || data[0]
+        : data[0];
+      setSelectedCourse(activeCurrent);
+      await fetchStats(activeCurrent.id);
     } else {
       setCourses([]);
+      setSelectedCourse(null);
       setStudentStats([]);
     }
     setLoading(false);
+    setRefreshing(false);
   };
+
+  const handleRefresh = useCallback(() => {
+    fetchCourses(true);
+  }, [selectedCourse, user?.id]);
 
   const fetchStats = async (courseId: string) => {
     // Get all sessions for this course
-    const { data: sessions } = await supabase
+    const { data: sessionRows } = await supabase
       .from('attendance_sessions')
       .select('id')
       .eq('course_id', courseId);
 
-    const sessionIds = sessions?.map((s: any) => s.id) ?? [];
+    const sessions = (sessionRows as Pick<DatabaseAttendanceSession, 'id'>[]) ?? [];
+    const sessionIds = sessions.map((s) => s.id);
     const totalSessions = sessionIds.length;
 
     // Get enrollments with student info
-    const { data: enrollments } = await supabase
+    const { data: enrollmentRows } = await supabase
       .from('enrollments')
       .select('student:student_id ( id, name, matric_number )')
       .eq('course_id', courseId);
 
-    if (!enrollments) { setStudentStats([]); return; }
+    if (!enrollmentRows) { setStudentStats([]); return; }
 
     // Batch aggregate student attendance counts to eliminate N+1 query loop
     const studentPresentMap = new Map<string, number>();
@@ -78,7 +94,7 @@ export default function ReportsScreen() {
       );
 
       if (!aggErr && aggData) {
-        aggData.forEach((row: any) => {
+        aggData.forEach((row) => {
           if (row.student_id) {
             studentPresentMap.set(row.student_id, Number(row.count) || 0);
           }
@@ -86,7 +102,7 @@ export default function ReportsScreen() {
       }
     }
 
-    const stats = enrollments.map((e: any) => {
+    const stats: StudentReportStat[] = enrollmentRows.map((e: any) => {
       const studentId = e.student?.id;
       const count = studentId ? (studentPresentMap.get(studentId) ?? 0) : 0;
       const pct = totalSessions > 0 ? Math.round((count / totalSessions) * 100) : 0;
@@ -100,7 +116,7 @@ export default function ReportsScreen() {
       };
     });
 
-    setStudentStats(stats.sort((a: any, b: any) => b.attendance - a.attendance));
+    setStudentStats(stats.sort((a, b) => b.attendance - a.attendance));
   };
 
   const avgAttendance = studentStats.length > 0
@@ -131,8 +147,8 @@ export default function ReportsScreen() {
         console.warn('Error fetching all course sessions:', sessErr);
       }
 
-      const sessions = allSessions ?? [];
-      const sessionIds = sessions.map((s: any) => s.id);
+      const sessions = (allSessions as (Pick<DatabaseAttendanceSession, 'id' | 'start_time' | 'end_time' | 'created_at'> & { lecturer?: { name?: string } | null })[]) ?? [];
+      const sessionIds = sessions.map((s) => s.id);
 
       // 2. Fetch all attendance records for these sessions
       const presenceSet = new Set<string>();
@@ -147,7 +163,8 @@ export default function ReportsScreen() {
           console.warn('Error fetching attendance records:', recErr);
         }
 
-        (recordsData ?? []).forEach((r: any) => {
+        const records = (recordsData as Pick<DatabaseAttendanceRecord, 'student_id' | 'session_id' | 'status'>[]) ?? [];
+        records.forEach((r) => {
           if (r.student_id && r.session_id) {
             presenceSet.add(`${r.student_id}_${r.session_id}`);
           }
@@ -156,13 +173,13 @@ export default function ReportsScreen() {
 
       // 3. Format date headers (dd/mm/yyyy), disambiguating multiple sessions on the same date
       const dateCountMap = new Map<string, number>();
-      sessions.forEach((s: any) => {
+      sessions.forEach((s) => {
         const d = formatDDMMYYYY(s.start_time || s.created_at);
         dateCountMap.set(d, (dateCountMap.get(d) || 0) + 1);
       });
 
       const dateSeenMap = new Map<string, number>();
-      const sessionDateHeaders = sessions.map((s: any) => {
+      const sessionDateHeaders = sessions.map((s) => {
         const d = formatDDMMYYYY(s.start_time || s.created_at);
         const lecturerSuffix = s.lecturer?.name ? ` (${s.lecturer.name})` : '';
         const count = dateCountMap.get(d) || 0;
@@ -186,7 +203,7 @@ export default function ReportsScreen() {
       ];
 
       // 5. Sort enrolled students consistently by Matric No., then Name
-      const sortedStudents = [...studentStats].sort((a: any, b: any) => {
+      const sortedStudents = [...studentStats].sort((a, b) => {
         const matA = (a.matric || '').trim().toLowerCase();
         const matB = (b.matric || '').trim().toLowerCase();
         if (matA && matB) return matA.localeCompare(matB, undefined, { numeric: true });
@@ -198,9 +215,9 @@ export default function ReportsScreen() {
       // 6. Build Student Rows with 'Present' or 'Absent' under each date
       const rows: (string | number)[][] = [headers];
 
-      sortedStudents.forEach((st: any, idx: number) => {
+      sortedStudents.forEach((st, idx) => {
         let presentCount = 0;
-        const dateStatuses = sessions.map((s: any) => {
+        const dateStatuses = sessions.map((s) => {
           const isPresent = presenceSet.has(`${st.id}_${s.id}`);
           if (isPresent) {
             presentCount += 1;
@@ -242,6 +259,40 @@ export default function ReportsScreen() {
 
   const s = makeStyles(colors);
 
+  const renderStudentStatItem = useCallback(
+    ({ item, index }: { item: StudentReportStat; index: number }) => {
+      const atRisk = item.attendance < 75;
+      const isFirst = index === 0;
+      const isLast = index === studentStats.length - 1;
+      return (
+        <View
+          key={item.id}
+          style={[
+            s.studentRow,
+            isFirst && s.studentRowFirst,
+            isLast ? s.studentRowLast : s.studentRowBorder,
+          ]}
+        >
+          <View style={[s.studentInitial, { backgroundColor: atRisk ? (isDark ? '#450a0a' : '#FEF2F2') : colors.secondaryDim }]}>
+            <Text style={[s.studentInitialText, { color: atRisk ? '#EF4444' : SECONDARY }]}>
+              {item.name?.charAt(0) ?? '?'}
+            </Text>
+          </View>
+          <View style={s.studentInfo}>
+            <Text style={s.studentName}>{item.name}</Text>
+            <Text style={s.studentMatric}>{item.matric ?? '—'} · {item.present}/{item.total} sessions</Text>
+          </View>
+          <View style={[s.attendanceBadge, { backgroundColor: atRisk ? (isDark ? '#450a0a' : '#FEF2F2') : colors.primaryDim }]}>
+            <Text style={[s.attendanceText, { color: atRisk ? '#EF4444' : colors.primaryText }]}>
+              {item.attendance}%
+            </Text>
+          </View>
+        </View>
+      );
+    },
+    [studentStats.length, isDark, colors.secondaryDim, colors.primaryDim, colors.primaryText, SECONDARY, s]
+  );
+
   return (
     <View style={s.root}>
       {/* Header */}
@@ -279,99 +330,102 @@ export default function ReportsScreen() {
           <Text style={s.emptySub}>Create a course to see attendance reports.</Text>
         </View>
       ) : (
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
-          {/* Course Tabs */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {courses.map((c: any) => (
-                <View
-                  key={c.id}
-                  style={[s.courseTab, selectedCourse?.id === c.id && { backgroundColor: SECONDARY }]}
-                >
-                  <Text
-                    style={[s.courseTabText, selectedCourse?.id === c.id && { color: '#FFF' }]}
-                    onPress={() => { setSelectedCourse(c); fetchStats(c.id); }}
-                  >
-                    {c.course_code}
-                  </Text>
+        <FlatList
+          data={studentStats}
+          keyExtractor={(item) => item.id}
+          renderItem={renderStudentStatItem}
+          ListHeaderComponent={
+            <>
+              {/* Course Tabs */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {courses.map((c) => {
+                    const isSel = selectedCourse?.id === c.id;
+                    return (
+                      <Pressable
+                        key={c.id}
+                        onPress={() => {
+                          setSelectedCourse(c);
+                          fetchStats(c.id);
+                        }}
+                        style={[s.courseTab, isSel && { backgroundColor: SECONDARY, borderColor: SECONDARY }]}
+                      >
+                        <Text
+                          style={[s.courseTabText, isSel && { color: '#FFF' }]}
+                        >
+                          {c.course_code}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-              ))}
-            </View>
-          </ScrollView>
+              </ScrollView>
 
-          {/* Average Card */}
-          <View style={s.avgCard}>
-            <Text style={s.avgLabel}>Average Class Attendance</Text>
-            <Text style={s.avgNum}>{avgAttendance}%</Text>
-            <View style={s.progressBg}>
-              <View style={[s.progressFill, { width: `${avgAttendance}%` as any }]} />
-            </View>
-            <View style={s.legendRow}>
-              <View style={s.legendItem}>
-                <View style={[s.legendDot, { backgroundColor: colors.primary }]} />
-                <Text style={s.legendText}>{studentStats.filter(s => s.attendance >= 75).length} On Track</Text>
+              {/* Average Card */}
+              <View style={s.avgCard}>
+                <Text style={s.avgLabel}>Average Class Attendance</Text>
+                <Text style={s.avgNum}>{avgAttendance}%</Text>
+                <View style={s.progressBg}>
+                  <View style={[s.progressFill, { width: `${Math.min(100, Math.max(0, avgAttendance))}%` }]} />
+                </View>
+                <View style={s.legendRow}>
+                  <View style={s.legendItem}>
+                    <View style={[s.legendDot, { backgroundColor: colors.primary }]} />
+                    <Text style={s.legendText}>{studentStats.filter((s) => s.attendance >= 75).length} On Track</Text>
+                  </View>
+                  <View style={s.legendItem}>
+                    <View style={[s.legendDot, { backgroundColor: '#EF4444' }]} />
+                    <Text style={s.legendText}>{studentStats.filter((s) => s.attendance < 75).length} At Risk</Text>
+                  </View>
+                </View>
               </View>
-              <View style={s.legendItem}>
-                <View style={[s.legendDot, { backgroundColor: '#EF4444' }]} />
-                <Text style={s.legendText}>{studentStats.filter(s => s.attendance < 75).length} At Risk</Text>
-              </View>
-            </View>
-          </View>
 
-          {/* Student List Section */}
-          <View style={s.sectionHeaderRow}>
-            <Text style={s.sectionLabel}>Student Breakdown</Text>
-            {studentStats.length > 0 && (
-              <Pressable
-                onPress={handlePrintCSV}
-                disabled={exporting}
-                style={[s.sectionPrintBtn, { backgroundColor: colors.secondaryDim }]}
-              >
-                {exporting ? (
-                  <ActivityIndicator size="small" color={SECONDARY} />
-                ) : (
-                  <>
-                    <Download size={14} color={SECONDARY} />
-                    <Text style={[s.sectionPrintText, { color: SECONDARY }]}>Print CSV</Text>
-                  </>
+              {/* Student List Section */}
+              <View style={s.sectionHeaderRow}>
+                <Text style={s.sectionLabel}>Student Breakdown</Text>
+                {studentStats.length > 0 && (
+                  <Pressable
+                    onPress={handlePrintCSV}
+                    disabled={exporting}
+                    style={[s.sectionPrintBtn, { backgroundColor: colors.secondaryDim }]}
+                  >
+                    {exporting ? (
+                      <ActivityIndicator size="small" color={SECONDARY} />
+                    ) : (
+                      <>
+                        <Download size={14} color={SECONDARY} />
+                        <Text style={[s.sectionPrintText, { color: SECONDARY }]}>Print CSV</Text>
+                      </>
+                    )}
+                  </Pressable>
                 )}
-              </Pressable>
-            )}
-          </View>
-
-          {studentStats.length === 0 ? (
+              </View>
+            </>
+          }
+          ListEmptyComponent={
             <View style={s.noStudents}>
               <Text style={s.noStudentsText}>No enrolled students or no sessions yet.</Text>
             </View>
-          ) : (
-            <View style={s.studentList}>
-              {studentStats.map((student, i) => {
-                const atRisk = student.attendance < 75;
-                return (
-                  <View
-                    key={student.id}
-                    style={[s.studentRow, i < studentStats.length - 1 && s.studentRowBorder]}
-                  >
-                    <View style={[s.studentInitial, { backgroundColor: atRisk ? (isDark ? '#450a0a' : '#FEF2F2') : colors.secondaryDim }]}>
-                      <Text style={[s.studentInitialText, { color: atRisk ? '#EF4444' : SECONDARY }]}>
-                        {student.name?.charAt(0) ?? '?'}
-                      </Text>
-                    </View>
-                    <View style={s.studentInfo}>
-                      <Text style={s.studentName}>{student.name}</Text>
-                      <Text style={s.studentMatric}>{student.matric ?? '—'} · {student.present}/{student.total} sessions</Text>
-                    </View>
-                    <View style={[s.attendanceBadge, { backgroundColor: atRisk ? (isDark ? '#450a0a' : '#FEF2F2') : colors.primaryDim }]}>
-                      <Text style={[s.attendanceText, { color: atRisk ? '#EF4444' : colors.primaryText }]}>
-                        {student.attendance}%
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </ScrollView>
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={SECONDARY}
+              colors={[SECONDARY]}
+            />
+          }
+          style={s.scroll}
+          contentContainerStyle={[
+            s.scrollContent,
+            { paddingBottom: Math.max(insets.bottom, 24) + 24 },
+          ]}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          showsVerticalScrollIndicator={false}
+        />
       )}
     </View>
   );
@@ -429,12 +483,26 @@ function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').us
     sectionPrintText: { fontSize: 12, fontWeight: '700', fontFamily: ff ? 'sans-serif-medium' : undefined },
     noStudents: { backgroundColor: c.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: c.cardBorder, alignItems: 'center' },
     noStudentsText: { fontSize: 14, color: c.textSub, fontFamily: ff ? 'sans-serif' : undefined },
-    studentList: {
-      backgroundColor: c.card, borderRadius: 18, overflow: 'hidden',
-      borderWidth: 1, borderColor: c.cardBorder,
-      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    studentRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 14,
+      backgroundColor: c.card,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: c.cardBorder,
     },
-    studentRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+    studentRowFirst: {
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderTopWidth: 1,
+    },
+    studentRowLast: {
+      borderBottomLeftRadius: 18,
+      borderBottomRightRadius: 18,
+      borderBottomWidth: 1,
+      marginBottom: 20,
+    },
     studentRowBorder: { borderBottomWidth: 1, borderBottomColor: c.cardBorder },
     studentInitial: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     studentInitialText: { fontSize: 16, fontWeight: '700', fontFamily: ff ? 'sans-serif-medium' : undefined },

@@ -7,6 +7,7 @@ import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { formatDateTime, parseSafeDate } from '../../lib/dateUtils';
+import { AttendanceHistoryItem, DatabaseEnrollment, DatabaseAttendanceSession, DatabaseAttendanceRecord, DatabaseCourse } from '../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -17,7 +18,7 @@ export default function HistoryScreen() {
   const supabase = useSupabaseClient();
   const PRIMARY = colors.primary;
 
-  const [records, setRecords] = useState<any[]>([]);
+  const [records, setRecords] = useState<AttendanceHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
@@ -55,12 +56,13 @@ export default function HistoryScreen() {
 
     try {
       // 1. Get all courses the student is enrolled in
-      const { data: enrollments } = await supabase
+      const { data: enrollmentRows } = await supabase
         .from('enrollments')
         .select('course_id')
         .eq('student_id', user.id);
       
-      const courseIds = enrollments?.map((e: any) => e.course_id) || [];
+      const enrollments = (enrollmentRows as Pick<DatabaseEnrollment, 'course_id'>[]) || [];
+      const courseIds = enrollments.map((e) => e.course_id);
 
       if (courseIds.length === 0) {
         setRecords([]);
@@ -74,7 +76,7 @@ export default function HistoryScreen() {
         .select('id, start_time, end_time, course:course_id ( course_code, course_title )')
         .in('course_id', courseIds);
       
-      const sessions = sessionData || [];
+      const sessions = (sessionData as (Pick<DatabaseAttendanceSession, 'id' | 'start_time' | 'end_time'> & { course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null })[]) || [];
 
       // 3. Get all attendance records for this student
       const { data: recordsData } = await supabase
@@ -82,10 +84,12 @@ export default function HistoryScreen() {
         .select('session_id, status, timestamp')
         .eq('student_id', user.id);
       
-      const recordsMap = new Map<string, any>((recordsData as any[])?.map((r: any) => [r.session_id, r]) || []);
+      const recordsMap = new Map<string, Pick<DatabaseAttendanceRecord, 'session_id' | 'status' | 'timestamp'>>(
+        (recordsData as Pick<DatabaseAttendanceRecord, 'session_id' | 'status' | 'timestamp'>[])?.map((r) => [r.session_id, r]) || []
+      );
 
       // 4. Combine them into a history array
-      const history = [];
+      const history: AttendanceHistoryItem[] = [];
       const now = new Date().toISOString();
 
       for (const session of sessions) {
@@ -133,7 +137,7 @@ export default function HistoryScreen() {
 
   const s = makeStyles(colors);
 
-  const renderHistoryItem = useCallback(({ item: record }: { item: any }) => {
+  const renderHistoryItem = useCallback(({ item: record }: { item: AttendanceHistoryItem }) => {
     const isPresent = record.status === 'present';
     const course = record.course;
     return (
