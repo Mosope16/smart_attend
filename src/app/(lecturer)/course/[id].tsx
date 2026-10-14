@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput,
+  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput, FlatList,
 } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -27,6 +27,7 @@ import {
   searchAvailableLecturers,
   CourseInstructor,
 } from '../../../lib/courseService';
+import { DatabaseCourse, StudentRosterItem } from '../../../types/database';
 
 const ff = Platform.OS === 'android';
 
@@ -45,10 +46,10 @@ export default function LecturerCourseDetails() {
   const supabase = useSupabaseClient();
   const { colors, isDark } = useTheme();
 
-  const [course, setCourse] = useState<any>(null);
+  const [course, setCourse] = useState<DatabaseCourse | null>(null);
   const [activeSession, setActiveSession] = useState<any>(null);
   const [selectedRadius, setSelectedRadius] = useState<number>(50);
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<StudentRosterItem[]>([]);
   const [presentStudentIds, setPresentStudentIds] = useState<Set<string>>(new Set());
   const [presentStudentDevices, setPresentStudentDevices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -531,6 +532,44 @@ export default function LecturerCourseDetails() {
   const strokeWidth = 10;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progressPercentage / 100) * circumference;
+  const renderStudentItem = useCallback(
+    ({ item, index }: { item: StudentRosterItem; index: number }) => {
+      const studentId = item.student?.id;
+      const isPresent = Boolean(activeSession && studentId && presentStudentIds.has(studentId));
+      const isFirst = index === 0;
+      const isLast = index === students.length - 1;
+
+      return (
+        <View
+          style={[
+            s.rosterRow,
+            isFirst && s.rosterRowFirst,
+            isLast ? s.rosterRowLast : s.rosterBorder,
+          ]}
+        >
+          <View style={[s.rosterIcon, { backgroundColor: colors.secondaryDim }]}>
+            <User size={16} color={SECONDARY} />
+          </View>
+          <View style={s.rosterInfo}>
+            <Text style={s.rosterName}>{item.student?.name || 'Unknown'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+              <Text style={s.rosterMatric}>{item.student?.matric_number || 'No matric no.'}</Text>
+              {Boolean(isPresent && studentId && presentStudentDevices[studentId as string]) && (
+                <View style={[s.deviceBadge, { backgroundColor: colors.secondaryDim }]}>
+                  <Smartphone size={10} color={SECONDARY} />
+                  <Text style={[s.deviceBadgeText, { color: SECONDARY }]} numberOfLines={1}>
+                    {presentStudentDevices[studentId as string]}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+          {isPresent && <View style={s.presentDot} />}
+        </View>
+      );
+    },
+    [activeSession, presentStudentIds, presentStudentDevices, students.length, colors, SECONDARY, s]
+  );
 
   return (
     <View style={s.root}>
@@ -565,13 +604,12 @@ export default function LecturerCourseDetails() {
         </View>
       </View>
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={[
-          s.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 24) + 24 },
-        ]}
-      >
+      <FlatList
+        data={students}
+        keyExtractor={(item) => item.id}
+        renderItem={renderStudentItem}
+        ListHeaderComponent={
+          <>
 
         {/* Session Card */}
         {activeSession ? (
@@ -836,46 +874,25 @@ export default function LecturerCourseDetails() {
           </Pressable>
         </View>
 
-        {students.length === 0 ? (
+          </>
+        }
+        ListEmptyComponent={
           <View style={[s.card, s.emptyCard]}>
             <Users size={32} color={colors.textMuted} />
             <Text style={s.emptyText}>No students enrolled yet.</Text>
           </View>
-        ) : (
-          <View style={s.rosterCard}>
-            {students.map((item: any, index: number) => {
-              const studentId = item.student?.id;
-              const isPresent = activeSession && studentId && presentStudentIds.has(studentId);
-              
-              return (
-                <View
-                  key={item.id}
-                  style={[s.rosterRow, index < students.length - 1 && s.rosterBorder]}
-                >
-                  <View style={[s.rosterIcon, { backgroundColor: colors.secondaryDim }]}>
-                    <User size={16} color={SECONDARY} />
-                  </View>
-                  <View style={s.rosterInfo}>
-                    <Text style={s.rosterName}>{item.student?.name || 'Unknown'}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-                      <Text style={s.rosterMatric}>{item.student?.matric_number || 'No matric no.'}</Text>
-                      {Boolean(isPresent && presentStudentDevices[studentId]) && (
-                        <View style={[s.deviceBadge, { backgroundColor: colors.secondaryDim }]}>
-                          <Smartphone size={10} color={SECONDARY} />
-                          <Text style={[s.deviceBadgeText, { color: SECONDARY }]} numberOfLines={1}>
-                            {presentStudentDevices[studentId]}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                  {isPresent && <View style={s.presentDot} />}
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
+        }
+        style={s.scroll}
+        contentContainerStyle={[
+          s.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 24) + 24 },
+        ]}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
+        showsVerticalScrollIndicator={false}
+      />
 
       {/* Add Co-Lecturer Modal */}
       <Modal
@@ -1180,7 +1197,26 @@ function makeStyles(c: ReturnType<typeof import('../../../context/ThemeContext')
       borderWidth: 1, borderColor: c.cardBorder,
       shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
     },
-    rosterRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+    rosterRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 14,
+      backgroundColor: c.card,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: c.cardBorder,
+    },
+    rosterRowFirst: {
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderTopWidth: 1,
+    },
+    rosterRowLast: {
+      borderBottomLeftRadius: 18,
+      borderBottomRightRadius: 18,
+      borderBottomWidth: 1,
+      marginBottom: 20,
+    },
     rosterBorder: { borderBottomWidth: 1, borderBottomColor: c.cardBorder },
     rosterIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     rosterInfo: { flex: 1 },

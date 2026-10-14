@@ -5,6 +5,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { NotificationProvider } from '../context/NotificationContext';
+import { observability } from '../lib/observability';
+
+observability.init();
 
 function InitialLayout() {
   const { isLoaded, isSignedIn } = useAuth();

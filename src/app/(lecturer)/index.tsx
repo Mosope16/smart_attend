@@ -23,7 +23,6 @@ import { useUser } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useSupabaseClient } from "../../lib/supabase";
 import { fetchLecturerCourses } from "../../lib/courseService";
-
 const ff = Platform.OS === "android";
 
 export default function LecturerDashboard() {
@@ -52,7 +51,7 @@ export default function LecturerDashboard() {
         fetchDashboardData();
       }, 150);
       return () => clearTimeout(timer);
-    }, [user]),
+    }, [user])
   );
 
   // Real-time listener: refresh lecturer dashboard stats live
@@ -65,28 +64,28 @@ export default function LecturerDashboard() {
         { event: "INSERT", schema: "public", table: "attendance_sessions" },
         () => {
           fetchDashboardData();
-        },
+        }
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "attendance_records" },
         () => {
           fetchDashboardData();
-        },
+        }
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "enrollments" },
         () => {
           fetchDashboardData();
-        },
+        }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "course_lecturers" },
         () => {
           fetchDashboardData();
-        },
+        }
       )
       .subscribe();
 
@@ -135,8 +134,7 @@ export default function LecturerDashboard() {
     }
 
     // Process stats
-    const uniqueStudents = new Set(enrollments?.map((e: any) => e.student_id))
-      .size;
+    const uniqueStudents = new Set(enrollments?.map((e: any) => e.student_id)).size;
     setTotalStudents(uniqueStudents);
     setTotalSessions(sessions?.length ?? 0);
 

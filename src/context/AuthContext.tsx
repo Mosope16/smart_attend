@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 import { neonAuth, UserProfile } from '../lib/auth';
 import { db } from '../lib/neon';
 import { getFacultyForDepartment } from '../constants/academicStructure';
+import { observability } from '../lib/observability';
 
 export interface AppUser extends UserProfile {
   fullName: string;
@@ -130,6 +131,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (userProfile) {
+      observability.setUser({
+        id: userProfile.id,
+        email: userProfile.email,
+        role: userProfile.role,
+      });
+    } else {
+      observability.setUser(null);
+    }
+  }, [userProfile]);
 
   const signIn = async (params: Parameters<typeof neonAuth.signIn>[0]) => {
     const res = await neonAuth.signIn(params);
