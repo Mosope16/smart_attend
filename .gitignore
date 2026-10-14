@@ -56,3 +56,6 @@ example/
 # Generated Native Folders
 /ios
 /android
+
+# Scratch directory
+scratch/

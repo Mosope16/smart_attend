@@ -7,6 +7,7 @@ import { Download, BarChart3 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient, executeSql } from '../../lib/supabase';
+import { fetchLecturerCourses } from '../../lib/courseService';
 import { useTheme } from '../../context/ThemeContext';
 import { exportCsv } from '../../lib/exportCsv';
 import { formatDate, formatTime, formatDDMMYYYY } from '../../lib/dateUtils';
@@ -37,10 +38,7 @@ export default function ReportsScreen() {
   const fetchCourses = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('courses')
-      .select('id, course_code, course_title')
-      .eq('lecturer_id', user.id);
+    const data = await fetchLecturerCourses(user.id);
     if (data && data.length > 0) {
       setCourses(data);
       setSelectedCourse(data[0]);
@@ -125,7 +123,7 @@ export default function ReportsScreen() {
       // 1. Fetch all attendance sessions for this course, ordered chronologically starting with the first lecture
       const { data: allSessions, error: sessErr } = await supabase
         .from('attendance_sessions')
-        .select('id, start_time, end_time, created_at')
+        .select('id, start_time, end_time, created_at, lecturer:lecturer_id ( name )')
         .eq('course_id', selectedCourse.id)
         .order('start_time', { ascending: true });
 
@@ -166,13 +164,14 @@ export default function ReportsScreen() {
       const dateSeenMap = new Map<string, number>();
       const sessionDateHeaders = sessions.map((s: any) => {
         const d = formatDDMMYYYY(s.start_time || s.created_at);
+        const lecturerSuffix = s.lecturer?.name ? ` (${s.lecturer.name})` : '';
         const count = dateCountMap.get(d) || 0;
         if (count > 1) {
           const seen = (dateSeenMap.get(d) || 0) + 1;
           dateSeenMap.set(d, seen);
-          return `${d} (#${seen})`;
+          return `${d} #${seen}${lecturerSuffix}`;
         }
-        return d;
+        return `${d}${lecturerSuffix}`;
       });
 
       // 4. Construct CSV Headers: S/N, Matric No., Full Name, Dates (dd/mm/yyyy), Total Present, Total Sessions, Attendance Rate (%)

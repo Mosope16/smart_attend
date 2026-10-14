@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../context/ThemeContext';
 import { formatDate, formatTime } from '../../../lib/dateUtils';
 import { getCurrentAttendanceLocation, validateGeofenceProximity } from '../../../lib/geo';
+import { getDeviceFingerprint } from '../../../lib/device';
+import { authenticateWithBiometrics } from '../../../lib/biometrics';
 
 const ff = Platform.OS === 'android';
 
@@ -120,9 +122,44 @@ export default function StudentCourseDetails() {
       }
     }
 
+    // Anti-Proxy Device Verification (Single-Device-Per-Session)
+    const device = await getDeviceFingerprint();
+
+    const { data: existingDeviceRecord } = await supabase
+      .from('attendance_records')
+      .select('id, student_id')
+      .eq('session_id', session.id)
+      .eq('device_id', device.deviceId)
+      .single();
+
+    if (existingDeviceRecord && existingDeviceRecord.student_id !== user.id) {
+      setMessage({
+        text: 'Proxy blocked: This physical device has already recorded attendance for another student in this session.',
+        type: 'error',
+      });
+      setSubmitting(false);
+      return;
+    }
+
+    // Native Biometric / Fingerprint Identity Verification
+    const bioResult = await authenticateWithBiometrics({
+      promptMessage: 'Verify fingerprint to confirm attendance',
+    });
+
+    if (!bioResult.success && !bioResult.notAvailable) {
+      setMessage({
+        text: bioResult.error || 'Biometric authentication is required to confirm attendance.',
+        type: 'error',
+      });
+      setSubmitting(false);
+      return;
+    }
+
     const { error: recordError } = await supabase.from('attendance_records').insert({
       session_id: session.id,
       student_id: user.id,
+      device_id: device.deviceId,
+      device_name: device.deviceName,
       status: 'present',
       timestamp: new Date().toISOString(),
     });

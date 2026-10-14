@@ -7,6 +7,7 @@ import { CheckCircle, Radio } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
+import { fetchLecturerCourses } from '../../lib/courseService';
 import { useTheme } from '../../context/ThemeContext';
 import { formatDate, formatTime } from '../../lib/dateUtils';
 
@@ -62,11 +63,8 @@ export default function SessionsScreen() {
     setLoading(true);
     const now = new Date().toISOString();
 
-    // Fetch sessions for courses taught by this lecturer
-    const { data: lecturerCourses } = await supabase
-      .from('courses')
-      .select('id')
-      .eq('lecturer_id', user.id);
+    // Fetch sessions for all courses taught by this lecturer (lead or co-lecturer)
+    const lecturerCourses = await fetchLecturerCourses(user.id);
 
     if (!lecturerCourses || lecturerCourses.length === 0) {
       setActiveSessions([]);
@@ -82,6 +80,7 @@ export default function SessionsScreen() {
       .select(`
         id, attendance_code, start_time, end_time,
         course:course_id ( course_code, course_title ),
+        lecturer:lecturer_id ( id, name ),
         attendance_records ( id )
       `)
       .in('course_id', courseIds)
@@ -159,6 +158,7 @@ export default function SessionsScreen() {
                       <Text style={s.pastCourse}>{session.course?.course_code}</Text>
                       <Text style={s.pastDate}>
                         {formatDate(session.start_time, { showDay: true, showYear: false })} · {formatTime(session.start_time)}
+                        {session.lecturer?.name ? ` · ${session.lecturer.name}` : ''}
                       </Text>
                     </View>
                     <View style={s.attendanceBadge}>

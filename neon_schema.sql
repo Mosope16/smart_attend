@@ -30,7 +30,17 @@ CREATE TABLE IF NOT EXISTS public.courses (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Create Enrollments Table
+-- 3. Create Course Lecturers Table (Co-teaching & Team teaching)
+CREATE TABLE IF NOT EXISTS public.course_lecturers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE NOT NULL,
+  lecturer_id UUID REFERENCES neon_auth.user(id) ON DELETE CASCADE NOT NULL,
+  role TEXT DEFAULT 'co_lecturer',
+  added_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(course_id, lecturer_id)
+);
+
+-- 4. Create Enrollments Table
 CREATE TABLE IF NOT EXISTS public.enrollments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id UUID REFERENCES neon_auth.user(id) ON DELETE CASCADE NOT NULL,
@@ -39,10 +49,11 @@ CREATE TABLE IF NOT EXISTS public.enrollments (
   UNIQUE(student_id, course_id)
 );
 
--- 4. Create Attendance Sessions Table (with Geo-fencing columns)
+-- 5. Create Attendance Sessions Table (with Geo-fencing and Lecturer Attribution)
 CREATE TABLE IF NOT EXISTS public.attendance_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE NOT NULL,
+  lecturer_id UUID REFERENCES neon_auth.user(id), -- Specific instructor who started this lecture
   attendance_code TEXT NOT NULL,
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,

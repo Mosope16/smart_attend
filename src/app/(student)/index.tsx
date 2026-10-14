@@ -119,13 +119,30 @@ export default function StudentDashboard() {
     const thisWeek = records?.filter((r: any) => parseSafeDate(r.timestamp) >= weekStart).length ?? 0;
     setWeekCount(thisWeek);
 
-    // Per-course stats
+    // Per-course stats: Pre-index session-to-course mapping and attendance records for O(N) lookup
+    const sessionToCourse = new Map<string, string>();
+    const courseSessionCount = new Map<string, number>();
+    (sessions ?? []).forEach((s: any) => {
+      sessionToCourse.set(s.id, s.course_id);
+      courseSessionCount.set(s.course_id, (courseSessionCount.get(s.course_id) || 0) + 1);
+    });
+
+    const coursePresentCount = new Map<string, number>();
+    (records ?? []).forEach((r: any) => {
+      if (r.status === 'present') {
+        const cId = sessionToCourse.get(r.session_id);
+        if (cId) {
+          coursePresentCount.set(cId, (coursePresentCount.get(cId) || 0) + 1);
+        }
+      }
+    });
+
     const stats: Record<string, { present: number; total: number }> = {};
     for (const course of enrolledCourses) {
-      const courseSessions = sessions?.filter((s: any) => s.course_id === course.id) ?? [];
-      const courseSessionIds = courseSessions.map((s: any) => s.id);
-      const present = records?.filter((r: any) => courseSessionIds.includes(r.session_id) && r.status === 'present').length ?? 0;
-      stats[course.id] = { present, total: courseSessions.length };
+      stats[course.id] = {
+        present: coursePresentCount.get(course.id) || 0,
+        total: courseSessionCount.get(course.id) || 0,
+      };
     }
     setCourseStats(stats);
     setLoading(false);

@@ -120,11 +120,45 @@ export default function HistoryScreen() {
     }
   };
 
-  const presentCount = records.filter(r => r.status === 'present').length;
-  const absentCount = records.filter(r => r.status === 'absent').length;
-  const pct = records.length > 0 ? Math.round((presentCount / records.length) * 100) : 0;
+  const { presentCount, absentCount, pct } = React.useMemo(() => {
+    let present = 0;
+    let absent = 0;
+    for (const r of records) {
+      if (r.status === 'present') present++;
+      else if (r.status === 'absent') absent++;
+    }
+    const rate = records.length > 0 ? Math.round((present / records.length) * 100) : 0;
+    return { presentCount: present, absentCount: absent, pct: rate };
+  }, [records]);
 
   const s = makeStyles(colors);
+
+  const renderHistoryItem = useCallback(({ item: record }: { item: any }) => {
+    const isPresent = record.status === 'present';
+    const course = record.course;
+    return (
+      <View style={s.sessionCard}>
+        <View style={[s.sessionIcon, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
+          <Calendar size={22} color={isPresent ? PRIMARY : '#EF4444'} />
+        </View>
+        <View style={s.sessionInfo}>
+          <Text style={s.sessionCourse}>{course?.course_code ?? 'Unknown'}</Text>
+          <Text style={s.sessionDate}>
+            {formatDateTime(record.timestamp)}
+          </Text>
+        </View>
+        <View style={[s.statusBadge, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
+          {isPresent
+            ? <Check size={13} color={colors.primaryText} />
+            : <X size={13} color="#EF4444" />
+          }
+          <Text style={[s.statusText, { color: isPresent ? colors.primaryText : '#EF4444' }]}>
+            {isPresent ? 'Present' : 'Absent'}
+          </Text>
+        </View>
+      </View>
+    );
+  }, [colors, isDark, PRIMARY, s]);
 
   return (
     <View style={s.root}>
@@ -166,38 +200,15 @@ export default function HistoryScreen() {
           maxToRenderPerBatch={10}
           windowSize={5}
           showsVerticalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          renderItem={({ item: record }) => {
-            const isPresent = record.status === 'present';
-            const course = record.course;
-            return (
-              <View style={s.sessionCard}>
-                <View style={[s.sessionIcon, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
-                  <Calendar size={22} color={isPresent ? PRIMARY : '#EF4444'} />
-                </View>
-                <View style={s.sessionInfo}>
-                  <Text style={s.sessionCourse}>{course?.course_code ?? 'Unknown'}</Text>
-                  <Text style={s.sessionDate}>
-                    {formatDateTime(record.timestamp)}
-                  </Text>
-                </View>
-                <View style={[s.statusBadge, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
-                  {isPresent
-                    ? <Check size={13} color={colors.primaryText} />
-                    : <X size={13} color="#EF4444" />
-                  }
-                  <Text style={[s.statusText, { color: isPresent ? colors.primaryText : '#EF4444' }]}>
-                    {isPresent ? 'Present' : 'Absent'}
-                  </Text>
-                </View>
-              </View>
-            );
-          }}
+          ItemSeparatorComponent={ItemSeparator}
+          renderItem={renderHistoryItem}
         />
       )}
     </View>
   );
 }
+
+const ItemSeparator = () => <View style={{ height: 10 }} />;
 
 function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').useTheme>['colors']) {
   return StyleSheet.create({

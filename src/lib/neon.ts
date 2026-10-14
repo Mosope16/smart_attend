@@ -242,6 +242,10 @@ class QueryBuilder<T = any> implements PromiseLike<{ data: any; error: any; coun
       joinClauses.push(`LEFT JOIN public.attendance_sessions __session ON __session.id = ${table}.session_id`);
       selectProjections.push(`row_to_json(__session.*) as session`);
     }
+    if (this.selectedFields.includes('lecturer:lecturer_id')) {
+      joinClauses.push(`LEFT JOIN public.users __lecturer ON __lecturer.id = ${table}.lecturer_id`);
+      selectProjections.push(`row_to_json(__lecturer.*) as lecturer`);
+    }
     if (this.selectedFields.includes('attendance_records')) {
       selectProjections.push(
         `COALESCE((SELECT json_agg(row_to_json(__ar.*)) FROM public.attendance_records __ar WHERE __ar.session_id = ${table}.id), '[]'::json) as attendance_records`
@@ -250,6 +254,11 @@ class QueryBuilder<T = any> implements PromiseLike<{ data: any; error: any; coun
     if (this.selectedFields.includes('enrollments')) {
       selectProjections.push(
         `COALESCE((SELECT json_agg(row_to_json(__enr.*)) FROM public.enrollments __enr WHERE __enr.course_id = ${table}.id), '[]'::json) as enrollments`
+      );
+    }
+    if (this.selectedFields.includes('course_lecturers')) {
+      selectProjections.push(
+        `COALESCE((SELECT json_agg(json_build_object('id', __cl.id, 'role', __cl.role, 'lecturer_id', __cl.lecturer_id, 'lecturer', row_to_json(__u.*))) FROM public.course_lecturers __cl JOIN public.users __u ON __u.id = __cl.lecturer_id WHERE __cl.course_id = ${table}.id), '[]'::json) as course_lecturers`
       );
     }
 

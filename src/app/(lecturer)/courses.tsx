@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
+import { fetchLecturerCourses, LecturerCourse } from '../../lib/courseService';
 import { Search, Plus, BookOpen, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -20,18 +21,15 @@ export default function CoursesScreen() {
   const { colors, isDark } = useTheme();
   const SECONDARY = colors.secondary;
 
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<LecturerCourse[]>([]);
   const [search, setSearch] = useState('');
 
-  useEffect(() => { fetchCourses(); }, []);
+  useEffect(() => { fetchCourses(); }, [user?.id]);
 
   const fetchCourses = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('courses').select('*')
-      .eq('lecturer_id', user.id)
-      .order('created_at', { ascending: false });
-    if (data) setCourses(data);
+    const data = await fetchLecturerCourses(user.id);
+    setCourses(data);
   };
 
   const filtered = courses.filter(
@@ -88,8 +86,20 @@ export default function CoursesScreen() {
                   <BookOpen size={20} color={SECONDARY} />
                 </View>
                 <View style={s.courseInfo}>
-                  <Text style={s.courseCode}>{course.course_code}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={s.courseCode}>{course.course_code}</Text>
+                    {course.user_role === 'co_lecturer' && (
+                      <View style={[s.roleBadge, { backgroundColor: colors.secondaryDim }]}>
+                        <Text style={[s.roleBadgeText, { color: SECONDARY }]}>Co-Lecturer</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={s.courseTitle} numberOfLines={1}>{course.course_title}</Text>
+                  {course.user_role === 'co_lecturer' && course.lead_lecturer?.name && (
+                    <Text style={[s.leadText, { color: colors.textMuted }]} numberOfLines={1}>
+                      Lead: {course.lead_lecturer.name}
+                    </Text>
+                  )}
                 </View>
                 <ChevronRight size={18} color={colors.textMuted} />
               </Pressable>
@@ -133,5 +143,8 @@ function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').us
     courseInfo: { flex: 1 },
     courseCode: { fontSize: 15, fontWeight: '700', color: c.text, marginBottom: 3, fontFamily: ff ? 'sans-serif-medium' : undefined },
     courseTitle: { fontSize: 13, color: c.textSub, fontFamily: ff ? 'sans-serif' : undefined },
+    roleBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    roleBadgeText: { fontSize: 10, fontWeight: '700', fontFamily: ff ? 'sans-serif-medium' : undefined },
+    leadText: { fontSize: 11, marginTop: 2, fontFamily: ff ? 'sans-serif' : undefined },
   });
 }

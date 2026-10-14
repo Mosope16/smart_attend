@@ -1,12 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert,
+  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput,
 } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useUser } from '../../../context/AuthContext';
 import { useSupabaseClient } from '../../../lib/supabase';
-import { ChevronLeft, Users, QrCode, User, Clock, RefreshCw, Download, MapPin, XCircle, Smartphone } from 'lucide-react-native';
+import {
+  ChevronLeft, Users, QrCode, User, Clock, RefreshCw, Download, MapPin, XCircle, Smartphone,
+  Shield, UserPlus, Trash2, Search, X, Check,
+} from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
@@ -17,6 +20,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../context/ThemeContext';
 import { formatDate, formatTime, formatDDMMYYYY } from '../../../lib/dateUtils';
 import { getCurrentAttendanceLocation } from '../../../lib/geo';
+import {
+  fetchCourseInstructors,
+  addCoLecturer,
+  removeCoLecturer,
+  searchAvailableLecturers,
+  CourseInstructor,
+} from '../../../lib/courseService';
 
 const ff = Platform.OS === 'android';
 
@@ -44,6 +54,21 @@ export default function LecturerCourseDetails() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Co-Lecturer Management State
+  const [instructors, setInstructors] = useState<{ lead: CourseInstructor | null; coLecturers: CourseInstructor[] }>({
+    lead: null,
+    coLecturers: [],
+  });
+  const [showAddLecturerModal, setShowAddLecturerModal] = useState(false);
+  const [searchLecturerText, setSearchLecturerText] = useState('');
+  const [availableLecturers, setAvailableLecturers] = useState<any[]>([]);
+  const [searchingLecturers, setSearchingLecturers] = useState(false);
+  const [addingLecturerId, setAddingLecturerId] = useState<string | null>(null);
+
+  const isLeadLecturer = Boolean(
+    user && course && (course.lecturer_id === user.id || instructors.lead?.lecturer_id === user.id)
+  );
+
   useEffect(() => {
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content');
     if (Platform.OS === 'android') StatusBar.setBackgroundColor(isDark ? '#071A40' : colors.secondary);
@@ -51,14 +76,16 @@ export default function LecturerCourseDetails() {
 
   const loadData = async () => {
     try {
-      // Fetch course and students
-      const [courseRes, studentsRes] = await Promise.all([
+      // Fetch course, students, and instructors
+      const [courseRes, studentsRes, instructorsRes] = await Promise.all([
         supabase.from('courses').select('*').eq('id', id).single(),
-        supabase.from('enrollments').select('id, student:student_id ( id, name, matric_number )').eq('course_id', id)
+        supabase.from('enrollments').select('id, student:student_id ( id, name, matric_number )').eq('course_id', id),
+        fetchCourseInstructors(id as string),
       ]);
 
       if (courseRes.data) setCourse(courseRes.data);
       if (studentsRes.data) setStudents(studentsRes.data);
+      if (instructorsRes) setInstructors(instructorsRes);
 
       // Fetch active session
       const now = new Date().toISOString();
@@ -109,6 +136,75 @@ export default function LecturerCourseDetails() {
       loadData();
     }, [id])
   );
+
+  const handleOpenAddModal = async () => {
+    setShowAddLecturerModal(true);
+    setSearchLecturerText('');
+    setSearchingLecturers(true);
+    const exclude = [
+      ...(instructors.lead ? [instructors.lead.lecturer_id] : []),
+      ...instructors.coLecturers.map((cl) => cl.lecturer_id),
+    ];
+    const results = await searchAvailableLecturers('', course?.department, exclude);
+    setAvailableLecturers(results);
+    setSearchingLecturers(false);
+  };
+
+  const handleSearchLecturers = async (text: string) => {
+    setSearchLecturerText(text);
+    setSearchingLecturers(true);
+    const exclude = [
+      ...(instructors.lead ? [instructors.lead.lecturer_id] : []),
+      ...instructors.coLecturers.map((cl) => cl.lecturer_id),
+    ];
+    const results = await searchAvailableLecturers(text, course?.department, exclude);
+    setAvailableLecturers(results);
+    setSearchingLecturers(false);
+  };
+
+  const handleAddCoLecturer = async (lecturerId: string) => {
+    try {
+      setAddingLecturerId(lecturerId);
+      const res = await addCoLecturer(id as string, lecturerId);
+      if (!res.success) {
+        Alert.alert('Unable to Add Co-Lecturer', res.error || 'Failed to add co-lecturer.');
+        return;
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowAddLecturerModal(false);
+      const updated = await fetchCourseInstructors(id as string);
+      setInstructors(updated);
+      Alert.alert('Co-Lecturer Assigned', 'Your colleague can now launch sessions and manage this course.');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to add co-lecturer.');
+    } finally {
+      setAddingLecturerId(null);
+    }
+  };
+
+  const handleRemoveCoLecturer = (lecturerId: string, name: string) => {
+    Alert.alert(
+      'Remove Co-Lecturer?',
+      `Are you sure you want to remove ${name} from this course?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await removeCoLecturer(id as string, lecturerId);
+            if (!res.success) {
+              Alert.alert('Error', res.error || 'Failed to remove co-lecturer.');
+              return;
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            const updated = await fetchCourseInstructors(id as string);
+            setInstructors(updated);
+          },
+        },
+      ]
+    );
+  };
 
   // Real-time subscription to automatically update the roster when a student marks present
   useEffect(() => {
@@ -237,6 +333,7 @@ export default function LecturerCourseDetails() {
       .from('attendance_sessions')
       .insert({
         course_id: id,
+        lecturer_id: user?.id,
         attendance_code: code,
         end_time: endTime,
         latitude,
@@ -294,7 +391,7 @@ export default function LecturerCourseDetails() {
       // 1. Fetch all attendance sessions for this course, ordered chronologically starting with the first lecture
       const { data: allSessions, error: sessErr } = await supabase
         .from('attendance_sessions')
-        .select('id, start_time, end_time, created_at')
+        .select('id, start_time, end_time, created_at, lecturer:lecturer_id ( id, name )')
         .eq('course_id', id)
         .order('start_time', { ascending: true });
 
@@ -325,7 +422,7 @@ export default function LecturerCourseDetails() {
         });
       }
 
-      // 3. Format date headers (dd/mm/yyyy), disambiguating any multiple sessions on the same date
+      // 3. Format date headers (dd/mm/yyyy), disambiguating any multiple sessions and attributing instructor
       const dateCountMap = new Map<string, number>();
       sessions.forEach((s: any) => {
         const d = formatDDMMYYYY(s.start_time || s.created_at);
@@ -335,13 +432,14 @@ export default function LecturerCourseDetails() {
       const dateSeenMap = new Map<string, number>();
       const sessionDateHeaders = sessions.map((s: any) => {
         const d = formatDDMMYYYY(s.start_time || s.created_at);
+        const lecturerName = s.lecturer?.name ? ` (${s.lecturer.name})` : '';
         const count = dateCountMap.get(d) || 0;
         if (count > 1) {
           const seen = (dateSeenMap.get(d) || 0) + 1;
           dateSeenMap.set(d, seen);
-          return `${d} (#${seen})`;
+          return `${d} #${seen}${lecturerName}`;
         }
-        return d;
+        return `${d}${lecturerName}`;
       });
 
       // 4. Construct CSV Headers: S/N, Matric No., Full Name, Dates (dd/mm/yyyy), Total Present, Total Sessions, Attendance Rate (%)
@@ -636,6 +734,86 @@ export default function LecturerCourseDetails() {
           </View>
         )}
 
+        {/* Course Instructors / Teaching Team */}
+        <View style={s.instructorsHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Shield size={16} color={SECONDARY} />
+            <Text style={s.sectionTitle}>Teaching Team</Text>
+            <View style={[s.countBadge, { backgroundColor: colors.secondaryDim }]}>
+              <Text style={[s.countBadgeText, { color: SECONDARY }]}>
+                {1 + instructors.coLecturers.length}
+              </Text>
+            </View>
+          </View>
+
+          {isLeadLecturer && (
+            <Pressable
+              onPress={handleOpenAddModal}
+              style={[s.addCoLecturerBtn, { backgroundColor: colors.secondaryDim }]}
+            >
+              <UserPlus size={14} color={SECONDARY} />
+              <Text style={[s.addCoLecturerText, { color: SECONDARY }]}>+ Add Co-Lecturer</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <View style={s.instructorsCard}>
+          {/* Lead Lecturer Card */}
+          <View style={[s.instructorRow, instructors.coLecturers.length > 0 && s.rosterBorder]}>
+            <View style={[s.instructorIcon, { backgroundColor: colors.secondaryDim }]}>
+              <Shield size={18} color={SECONDARY} />
+            </View>
+            <View style={s.instructorInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Text style={s.instructorName}>
+                  {instructors.lead?.name || 'Lead Lecturer'}
+                </Text>
+                <View style={s.leadBadge}>
+                  <Text style={s.leadBadgeText}>Coordinator</Text>
+                </View>
+              </View>
+              <Text style={s.instructorSub}>
+                {instructors.lead?.email || 'Department Coordinator'}
+                {instructors.lead?.staff_id ? ` · Staff ID: ${instructors.lead.staff_id}` : ''}
+              </Text>
+            </View>
+          </View>
+
+          {/* Co-Lecturers */}
+          {instructors.coLecturers.map((col, idx) => (
+            <View
+              key={col.lecturer_id}
+              style={[s.instructorRow, idx < instructors.coLecturers.length - 1 && s.rosterBorder]}
+            >
+              <View style={[s.instructorIcon, { backgroundColor: colors.cardAlt }]}>
+                <User size={18} color={colors.textSub} />
+              </View>
+              <View style={s.instructorInfo}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Text style={s.instructorName}>{col.name}</Text>
+                  <View style={s.coLecturerBadge}>
+                    <Text style={s.coLecturerBadgeText}>Co-Lecturer</Text>
+                  </View>
+                </View>
+                <Text style={s.instructorSub}>
+                  {col.email || 'Department Staff'}
+                  {col.staff_id ? ` · Staff ID: ${col.staff_id}` : ''}
+                </Text>
+              </View>
+
+              {isLeadLecturer && (
+                <Pressable
+                  onPress={() => handleRemoveCoLecturer(col.lecturer_id, col.name)}
+                  hitSlop={8}
+                  style={s.removeBtn}
+                >
+                  <Trash2 size={16} color="#DC2626" />
+                </Pressable>
+              )}
+            </View>
+          ))}
+        </View>
+
         {/* Roster */}
         <View style={s.rosterHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -698,6 +876,111 @@ export default function LecturerCourseDetails() {
           </View>
         )}
       </ScrollView>
+
+      {/* Add Co-Lecturer Modal */}
+      <Modal
+        visible={showAddLecturerModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowAddLecturerModal(false)}
+      >
+        <View style={s.modalOverlay}>
+          <Pressable
+            style={s.modalBackdrop}
+            onPress={() => setShowAddLecturerModal(false)}
+          />
+          <View style={s.modalContent}>
+            <View style={s.modalHeader}>
+              <View>
+                <Text style={s.modalTitle}>Add Co-Lecturer</Text>
+                <Text style={s.modalSubtitle}>
+                  Assign a departmental colleague to teach {course?.course_code}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setShowAddLecturerModal(false)}
+                style={s.modalCloseBtn}
+              >
+                <X size={18} color={colors.textSub} />
+              </Pressable>
+            </View>
+
+            {/* Search Input */}
+            <View style={s.searchBar}>
+              <Search size={16} color={colors.textMuted} />
+              <TextInput
+                style={s.searchInput}
+                placeholder="Search by lecturer name or email..."
+                placeholderTextColor={colors.textMuted}
+                value={searchLecturerText}
+                onChangeText={handleSearchLecturers}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searchLecturerText.length > 0 && (
+                <Pressable onPress={() => handleSearchLecturers('')} hitSlop={6}>
+                  <X size={14} color={colors.textMuted} />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Search Results List */}
+            <ScrollView style={s.modalList} contentContainerStyle={{ paddingBottom: 16 }}>
+              {searchingLecturers ? (
+                <View style={s.modalLoadingBox}>
+                  <ActivityIndicator size="small" color={SECONDARY} />
+                  <Text style={s.modalLoadingText}>Searching lecturers...</Text>
+                </View>
+              ) : availableLecturers.length === 0 ? (
+                <View style={s.modalEmptyBox}>
+                  <Users size={32} color={colors.textMuted} />
+                  <Text style={s.modalEmptyText}>
+                    {searchLecturerText
+                      ? 'No matching lecturers found.'
+                      : 'No other lecturers available in this department.'}
+                  </Text>
+                </View>
+              ) : (
+                availableLecturers.map((lec) => {
+                  const isAdding = addingLecturerId === lec.id;
+                  return (
+                    <View key={lec.id} style={s.lecturerResultItem}>
+                      <View style={[s.lecturerAvatar, { backgroundColor: colors.secondaryDim }]}>
+                        <Text style={[s.lecturerAvatarText, { color: SECONDARY }]}>
+                          {(lec.name || 'L').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={s.lecturerResultInfo}>
+                        <Text style={s.lecturerResultName}>{lec.name}</Text>
+                        <Text style={s.lecturerResultEmail} numberOfLines={1}>
+                          {lec.email}
+                        </Text>
+                        {lec.staff_id ? (
+                          <Text style={s.lecturerResultStaffId}>ID: {lec.staff_id}</Text>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        onPress={() => handleAddCoLecturer(lec.id)}
+                        disabled={isAdding}
+                        style={[s.assignBtn, { backgroundColor: SECONDARY }]}
+                      >
+                        {isAdding ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <UserPlus size={14} color="#FFFFFF" />
+                            <Text style={s.assignBtnText}>Assign</Text>
+                          </>
+                        )}
+                      </Pressable>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -917,5 +1200,253 @@ function makeStyles(c: ReturnType<typeof import('../../../context/ThemeContext')
       fontFamily: ff ? 'sans-serif-medium' : undefined,
     },
     presentDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#1B6B3A' },
+
+    // Teaching Team / Instructors
+    instructorsHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+      marginTop: 8,
+    },
+    countBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 12,
+    },
+    countBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    addCoLecturerBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      gap: 5,
+    },
+    addCoLecturerText: {
+      fontSize: 12,
+      fontWeight: '600',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    instructorsCard: {
+      backgroundColor: c.card,
+      borderRadius: 18,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.cardBorder,
+      marginBottom: 24,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.04,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    instructorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 14,
+    },
+    instructorIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    instructorInfo: {
+      flex: 1,
+    },
+    instructorName: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.text,
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    instructorSub: {
+      fontSize: 12,
+      color: c.textMuted,
+      marginTop: 2,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    leadBadge: {
+      backgroundColor: '#FEF3C7',
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 6,
+    },
+    leadBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#92400E',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    coLecturerBadge: {
+      backgroundColor: '#E0E7FF',
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 6,
+    },
+    coLecturerBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#3730A3',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    removeBtn: {
+      padding: 8,
+      borderRadius: 8,
+    },
+
+    // Modal
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    modalBackdrop: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    modalContent: {
+      width: '100%',
+      maxHeight: '80%',
+      backgroundColor: c.card,
+      borderRadius: 20,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: c.cardBorder,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      elevation: 5,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 16,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.text,
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    modalSubtitle: {
+      fontSize: 12,
+      color: c.textSub,
+      marginTop: 3,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    modalCloseBtn: {
+      padding: 6,
+      borderRadius: 14,
+      backgroundColor: c.cardAlt,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.cardAlt,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: c.cardBorder,
+      marginBottom: 14,
+      gap: 8,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: c.text,
+      paddingVertical: 2,
+    },
+    modalList: {
+      maxHeight: 320,
+    },
+    modalLoadingBox: {
+      padding: 32,
+      alignItems: 'center',
+      gap: 10,
+    },
+    modalLoadingText: {
+      fontSize: 13,
+      color: c.textMuted,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    modalEmptyBox: {
+      padding: 32,
+      alignItems: 'center',
+      gap: 8,
+    },
+    modalEmptyText: {
+      fontSize: 13,
+      color: c.textMuted,
+      textAlign: 'center',
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    lecturerResultItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: c.cardBorder,
+      gap: 12,
+    },
+    lecturerAvatar: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    lecturerAvatarText: {
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    lecturerResultInfo: {
+      flex: 1,
+    },
+    lecturerResultName: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: c.text,
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    lecturerResultEmail: {
+      fontSize: 12,
+      color: c.textMuted,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    lecturerResultStaffId: {
+      fontSize: 11,
+      color: c.textMuted,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    assignBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 8,
+      gap: 5,
+    },
+    assignBtnText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
   });
 }
