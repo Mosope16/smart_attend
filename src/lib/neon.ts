@@ -242,6 +242,16 @@ class QueryBuilder<T = any> implements PromiseLike<{ data: any; error: any; coun
       joinClauses.push(`LEFT JOIN public.attendance_sessions __session ON __session.id = ${table}.session_id`);
       selectProjections.push(`row_to_json(__session.*) as session`);
     }
+    if (this.selectedFields.includes('attendance_records')) {
+      selectProjections.push(
+        `COALESCE((SELECT json_agg(row_to_json(__ar.*)) FROM public.attendance_records __ar WHERE __ar.session_id = ${table}.id), '[]'::json) as attendance_records`
+      );
+    }
+    if (this.selectedFields.includes('enrollments')) {
+      selectProjections.push(
+        `COALESCE((SELECT json_agg(row_to_json(__enr.*)) FROM public.enrollments __enr WHERE __enr.course_id = ${table}.id), '[]'::json) as enrollments`
+      );
+    }
 
     const where = this.whereClauses.length > 0 ? `WHERE ${this.whereClauses.join(' AND ')}` : '';
     const order = this.orderClauses.length > 0 ? `ORDER BY ${this.orderClauses.join(', ')}` : '';

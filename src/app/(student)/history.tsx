@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, Platform, StatusBar, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Platform, StatusBar, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Calendar, Check, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -157,36 +157,43 @@ export default function HistoryScreen() {
           <Text style={s.emptySubText}>Records will appear after you mark attendance.</Text>
         </View>
       ) : (
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
-          <View style={{ gap: 10 }}>
-            {records.map((record) => {
-              const isPresent = record.status === 'present';
-              const course = record.course;
-              return (
-                <View key={record.id} style={s.sessionCard}>
-                  <View style={[s.sessionIcon, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
-                    <Calendar size={22} color={isPresent ? PRIMARY : '#EF4444'} />
-                  </View>
-                  <View style={s.sessionInfo}>
-                    <Text style={s.sessionCourse}>{course?.course_code ?? 'Unknown'}</Text>
-                    <Text style={s.sessionDate}>
-                      {formatDateTime(record.timestamp)}
-                    </Text>
-                  </View>
-                  <View style={[s.statusBadge, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
-                    {isPresent
-                      ? <Check size={13} color={colors.primaryText} />
-                      : <X size={13} color="#EF4444" />
-                    }
-                    <Text style={[s.statusText, { color: isPresent ? colors.primaryText : '#EF4444' }]}>
-                      {isPresent ? 'Present' : 'Absent'}
-                    </Text>
-                  </View>
+        <FlatList
+          data={records}
+          keyExtractor={(item) => item.id}
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          showsVerticalScrollIndicator={false}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          renderItem={({ item: record }) => {
+            const isPresent = record.status === 'present';
+            const course = record.course;
+            return (
+              <View style={s.sessionCard}>
+                <View style={[s.sessionIcon, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
+                  <Calendar size={22} color={isPresent ? PRIMARY : '#EF4444'} />
                 </View>
-              );
-            })}
-          </View>
-        </ScrollView>
+                <View style={s.sessionInfo}>
+                  <Text style={s.sessionCourse}>{course?.course_code ?? 'Unknown'}</Text>
+                  <Text style={s.sessionDate}>
+                    {formatDateTime(record.timestamp)}
+                  </Text>
+                </View>
+                <View style={[s.statusBadge, { backgroundColor: isPresent ? colors.primaryDim : (isDark ? '#450a0a' : '#FEF2F2') }]}>
+                  {isPresent
+                    ? <Check size={13} color={colors.primaryText} />
+                    : <X size={13} color="#EF4444" />
+                  }
+                  <Text style={[s.statusText, { color: isPresent ? colors.primaryText : '#EF4444' }]}>
+                    {isPresent ? 'Present' : 'Absent'}
+                  </Text>
+                </View>
+              </View>
+            );
+          }}
+        />
       )}
     </View>
   );

@@ -6,7 +6,7 @@ import { useFocusEffect } from 'expo-router';
 import { Download, BarChart3 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../../context/AuthContext';
-import { useSupabaseClient } from '../../lib/supabase';
+import { useSupabaseClient, executeSql } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { exportCsv } from '../../lib/exportCsv';
 import { formatDate, formatTime, formatDDMMYYYY } from '../../lib/dateUtils';
@@ -70,31 +70,39 @@ export default function ReportsScreen() {
 
     if (!enrollments) { setStudentStats([]); return; }
 
-    // For each student, count how many sessions they were present
-    const stats = await Promise.all(enrollments.map(async (e: any) => {
-      let count = 0;
-      if (totalSessions > 0 && e.student?.id) {
-        const { count: c } = await supabase
-          .from('attendance_records')
-          .select('id', { count: 'exact', head: true })
-          .eq('student_id', e.student.id)
-          .eq('status', 'present')
-          .in('session_id', sessionIds);
-        count = c ?? 0;
-      }
+    // Batch aggregate student attendance counts to eliminate N+1 query loop
+    const studentPresentMap = new Map<string, number>();
 
+    if (totalSessions > 0 && sessionIds.length > 0) {
+      const sessionList = sessionIds.map((id: string) => `'${String(id).replace(/'/g, "''")}'`).join(', ');
+      const { data: aggData, error: aggErr } = await executeSql<{ student_id: string; count: number }>(
+        `SELECT student_id, COUNT(*)::int as count FROM public.attendance_records WHERE session_id IN (${sessionList}) AND status = 'present' GROUP BY student_id;`
+      );
+
+      if (!aggErr && aggData) {
+        aggData.forEach((row: any) => {
+          if (row.student_id) {
+            studentPresentMap.set(row.student_id, Number(row.count) || 0);
+          }
+        });
+      }
+    }
+
+    const stats = enrollments.map((e: any) => {
+      const studentId = e.student?.id;
+      const count = studentId ? (studentPresentMap.get(studentId) ?? 0) : 0;
       const pct = totalSessions > 0 ? Math.round((count / totalSessions) * 100) : 0;
       return {
-        id: e.student?.id ?? Math.random().toString(),
+        id: studentId ?? Math.random().toString(),
         name: e.student?.name ?? 'Unknown',
         matric: e.student?.matric_number ?? 'Unknown',
         present: count,
         total: totalSessions,
         attendance: pct,
       };
-    }));
+    });
 
-    setStudentStats(stats.sort((a, b) => b.attendance - a.attendance));
+    setStudentStats(stats.sort((a: any, b: any) => b.attendance - a.attendance));
   };
 
   const avgAttendance = studentStats.length > 0
