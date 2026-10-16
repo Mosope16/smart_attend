@@ -515,15 +515,6 @@ export default function LecturerCourseDetails() {
   const SECONDARY = colors.secondary;
   const s = makeStyles(colors);
 
-  if (loading || !course) {
-    return (
-      <View style={s.centered}>
-        <ActivityIndicator size="large" color={SECONDARY} />
-        <Text style={s.loadingText}>Loading course...</Text>
-      </View>
-    );
-  }
-
   const totalEnrolled = students.length || 0;
   const presentStudents = presentStudentIds.size;
   const progressPercentage = totalEnrolled > 0 ? (presentStudents / totalEnrolled) * 100 : 0;
@@ -532,6 +523,7 @@ export default function LecturerCourseDetails() {
   const strokeWidth = 10;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progressPercentage / 100) * circumference;
+
   const renderStudentItem = useCallback(
     ({ item, index }: { item: StudentRosterItem; index: number }) => {
       const studentId = item.student?.id;
@@ -570,6 +562,15 @@ export default function LecturerCourseDetails() {
     },
     [activeSession, presentStudentIds, presentStudentDevices, students.length, colors, SECONDARY, s]
   );
+
+  if (loading || !course) {
+    return (
+      <View style={s.centered}>
+        <ActivityIndicator size="large" color={SECONDARY} />
+        <Text style={s.loadingText}>Loading course...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={s.root}>
