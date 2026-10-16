@@ -54,14 +54,12 @@ jobs:
       - name: 5. Run automated test suite
         run: npm test
 
-      - name: 6. Setup EAS CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: 6. Install EAS CLI
+        run: npm install -g eas-cli
 
       - name: 7. Execute EAS Build
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           PLATFORM: ${{ github.event.inputs.platform || 'android' }}
           PROFILE: ${{ github.event.inputs.profile || 'preview' }}
         run: |
