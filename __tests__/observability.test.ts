@@ -7,9 +7,16 @@ jest.mock('react-native', () => ({
 import { observability, logger } from '../src/lib/observability';
 
 describe('Observability & Crash Reporting Suite', () => {
+  let consoleErrorSpy: jest.SpyInstance;
+
   beforeEach(() => {
-    // Reset user context
+    // Silence console.error output during deliberate test error captures
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     observability.setUser(null);
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   test('initializes without throwing errors', () => {
@@ -48,27 +55,27 @@ describe('Observability & Crash Reporting Suite', () => {
     expect(() => {
       observability.captureException(testError, { screen: 'markAttendance' });
     }).not.toThrow();
+    expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
   test('captures non-Error exception strings gracefully', () => {
     expect(() => {
       observability.captureException('Direct string exception payload', { code: 500 });
     }).not.toThrow();
+    expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
   test('logger helper methods record events properly', () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     logger.info('auth', 'User logged in');
     logger.warn('geofence', 'Location tolerance reached');
     logger.error('sync', 'Failed to synchronize attendance cache');
     logger.captureException(new Error('Sample caught error'));
 
-    expect(consoleSpy).toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalled();
 
-    consoleSpy.mockRestore();
-    errorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
   });
 });

@@ -168,7 +168,16 @@ export default function StudentCourseDetails() {
     });
 
     if (recordError) {
-      if (recordError.code === '23505') {
+      const errMsg = String(recordError.message || recordError.details || '');
+      if (
+        recordError.code === '23505' &&
+        (errMsg.includes('idx_records_session_device') || errMsg.includes('device_id'))
+      ) {
+        setMessage({
+          text: 'Proxy attendance blocked: This physical device was already used to sign attendance for this lecture.',
+          type: 'error',
+        });
+      } else if (recordError.code === '23505') {
         setMessage({ text: 'You already marked attendance for this session.', type: 'error' });
       } else {
         setMessage({ text: 'Something went wrong. Please try again.', type: 'error' });
