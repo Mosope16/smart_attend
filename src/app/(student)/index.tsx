@@ -6,11 +6,13 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
-import { Bell, BookOpen, ChevronRight } from 'lucide-react-native';
+import { Bell, BookOpen, ChevronRight, CloudOff, RefreshCw } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { parseSafeDate } from '../../lib/dateUtils';
+import { getPendingQueueCount, syncOfflineAttendanceQueue } from '../../lib/offlineQueue';
+import * as Haptics from 'expo-haptics';
 import { DatabaseCourse, DatabaseAttendanceSession, DatabaseAttendanceRecord } from '../../types/database';
 
 const ff = Platform.OS === 'android';
@@ -29,6 +31,25 @@ export default function StudentDashboard() {
   const [weekCount, setWeekCount] = useState<number>(0);
   const [courseStats, setCourseStats] = useState<Record<string, { present: number; total: number }>>({});
   const [loading, setLoading] = useState(true);
+  const [pendingOfflineCount, setPendingOfflineCount] = useState<number>(0);
+  const [syncingOffline, setSyncingOffline] = useState(false);
+
+  const checkAndSyncOfflineQueue = useCallback(async () => {
+    try {
+      const count = await getPendingQueueCount();
+      setPendingOfflineCount(count);
+      if (count > 0) {
+        const res = await syncOfflineAttendanceQueue(supabase);
+        if (res.synced > 0) {
+          fetchAll();
+        }
+        const remaining = await getPendingQueueCount();
+        setPendingOfflineCount(remaining);
+      }
+    } catch {
+      // offline
+    }
+  }, [supabase]);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,9 +58,10 @@ export default function StudentDashboard() {
       const timer = setTimeout(() => {
         fetchAll();
         checkActiveSessionsForEnrolledCourses();
+        checkAndSyncOfflineQueue();
       }, 150);
       return () => clearTimeout(timer);
-    }, [user?.id, isDark, PRIMARY, checkActiveSessionsForEnrolledCourses])
+    }, [user?.id, isDark, PRIMARY, checkActiveSessionsForEnrolledCourses, checkAndSyncOfflineQueue])
   );
 
   // Real-time listener: refresh stats when sessions open or attendance is marked
@@ -160,6 +182,27 @@ export default function StudentDashboard() {
     return 'Good Evening';
   };
 
+  const handleManualSync = async () => {
+    if (syncingOffline) return;
+    setSyncingOffline(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const res = await syncOfflineAttendanceQueue(supabase);
+      if (res.synced > 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        fetchAll();
+      } else if (res.failed > 0 && res.synced === 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+    } catch {
+      // offline
+    } finally {
+      const remaining = await getPendingQueueCount();
+      setPendingOfflineCount(remaining);
+      setSyncingOffline(false);
+    }
+  };
+
   const s = makeStyles(colors);
 
   return (
@@ -205,6 +248,37 @@ export default function StudentDashboard() {
 
       {/* Content */}
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
+        {pendingOfflineCount > 0 && (
+          <View style={s.offlineBanner}>
+            <View style={s.offlineBannerLeft}>
+              <View style={[s.offlineIconWrap, { backgroundColor: '#FEF3C7' }]}>
+                <CloudOff size={18} color="#D97706" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.offlineBannerTitle}>
+                  {pendingOfflineCount} Offline Check-in{pendingOfflineCount > 1 ? 's' : ''} Pending
+                </Text>
+                <Text style={s.offlineBannerSub}>
+                  Recorded in lecture hall. Tap Sync when connected to Wi-Fi/data.
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={handleManualSync}
+              disabled={syncingOffline}
+              style={[s.offlineSyncBtn, { backgroundColor: PRIMARY }]}
+            >
+              {syncingOffline ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <RefreshCw size={13} color="#FFFFFF" />
+                  <Text style={s.offlineSyncBtnText}>Sync</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+        )}
         {!isPermissionGranted && (
           <View style={s.notifBanner}>
             <View style={s.notifBannerLeft}>
@@ -375,6 +449,57 @@ function makeStyles(c: ReturnType<typeof import('../../context/ThemeContext').us
       color: '#FFFFFF',
       fontSize: 13,
       fontWeight: '600',
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    offlineBanner: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 14,
+      borderWidth: 1.5,
+      borderColor: '#F59E0B',
+      marginBottom: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    offlineBannerLeft: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    offlineIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    offlineBannerTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.text,
+      fontFamily: ff ? 'sans-serif-medium' : undefined,
+    },
+    offlineBannerSub: {
+      fontSize: 12,
+      color: c.textSub,
+      marginTop: 2,
+      fontFamily: ff ? 'sans-serif' : undefined,
+    },
+    offlineSyncBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 70,
+    },
+    offlineSyncBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
       fontFamily: ff ? 'sans-serif-medium' : undefined,
     },
   });

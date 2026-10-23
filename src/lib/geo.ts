@@ -29,6 +29,9 @@ export function calculateHaversineDistance(
   return R * c;
 }
 
+export const calculateDistanceMeters = calculateHaversineDistance;
+
+
 /**
  * Requests high-accuracy current location for attendance validation.
  * Uses a robust timeout and fallback to cached GPS/network coordinates

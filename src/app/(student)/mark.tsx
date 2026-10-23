@@ -5,7 +5,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { ScanLine, ChevronLeft, Hash, Camera, X, CheckCircle, MapPin } from 'lucide-react-native';
+import { ScanLine, ChevronLeft, Hash, Camera, X, CheckCircle, MapPin, CloudOff } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../../context/AuthContext';
 import { useSupabaseClient } from '../../lib/supabase';
@@ -15,6 +15,7 @@ import { getDeviceFingerprint } from '../../lib/device';
 import { authenticateWithBiometrics, getBiometricCapabilities } from '../../lib/biometrics';
 import { validateScannedQr } from '../../lib/rotatingQr';
 import { logAttendanceAttempt } from '../../lib/attendanceTelemetry';
+import { isNetworkError, enqueueOfflineAttendance } from '../../lib/offlineQueue';
 import { FingerprintIcon } from '../../components/FingerprintIcon';
 import * as Haptics from 'expo-haptics';
 import { DatabaseAttendanceSession, DatabaseCourse } from '../../types/database';
@@ -88,28 +89,136 @@ export default function MarkAttendanceScreen() {
 
   const submitCode = async (attendanceCode: string, isDynamic = false) => {
     if (!user || attendanceCode.length < 5) return;
+    const cleanCode = attendanceCode.trim().toUpperCase();
     const startTime = Date.now();
     setLoading(true);
     setError('');
     setSuccess('');
 
+    // Pre-capture device fingerprint (works completely offline)
+    let device: { deviceId: string; deviceName: string };
+    try {
+      device = await getDeviceFingerprint();
+    } catch {
+      device = {
+        deviceId: 'device_' + (user.id || 'unknown'),
+        deviceName: Platform.OS === 'android' ? 'Android Device' : 'iOS Device',
+      };
+    }
+
     const now = new Date().toISOString();
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('attendance_sessions')
-      .select('id, course_id, latitude, longitude, radius_meters, course:course_id(course_code, course_title)')
-      .eq('attendance_code', attendanceCode.toUpperCase())
-      .gt('end_time', now)
-      .single();
+    let session: (DatabaseAttendanceSession & { course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null }) | null = null;
+    let isOffline = false;
 
-    const session = sessionData as (DatabaseAttendanceSession & { course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null }) | null;
+    try {
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('attendance_sessions')
+        .select('id, course_id, latitude, longitude, radius_meters, course:course_id(course_code, course_title)')
+        .eq('attendance_code', cleanCode)
+        .gt('end_time', now)
+        .single();
 
-    if (sessionError || !session) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError('Invalid or expired attendance code. Please check and try again.');
+      if (sessionError) {
+        if (isNetworkError(sessionError)) {
+          isOffline = true;
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError('Invalid or expired attendance code. Please check and try again.');
+          setLoading(false);
+          setScanned(false);
+          return;
+        }
+      } else if (!sessionData) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError('Invalid or expired attendance code. Please check and try again.');
+        setLoading(false);
+        setScanned(false);
+        return;
+      } else {
+        session = sessionData as (DatabaseAttendanceSession & { course?: Pick<DatabaseCourse, 'course_code' | 'course_title'> | null });
+      }
+    } catch (err: any) {
+      if (isNetworkError(err)) {
+        isOffline = true;
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError(err?.message || 'Unable to connect to attendance server.');
+        setLoading(false);
+        setScanned(false);
+        return;
+      }
+    }
+
+    // ─── OFFLINE MODE FALLBACK ───────────────────────────────────────────────
+    // If university lecture hall has zero cellular/Wi-Fi signal:
+    // Capture GPS fix via hardware GNSS chip, enforce biometric auth,
+    // and cryptographically seal check-in locally in the offline queue.
+    if (isOffline || !session) {
+      // 1. Capture current location fix (GPS works without cellular data)
+      const locResult = await getCurrentAttendanceLocation();
+      if (locResult.error && locResult.error.includes('permission')) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError(locResult.error);
+        setLoading(false);
+        setScanned(false);
+        return;
+      }
+
+      // 2. Native Biometric / Fingerprint Identity Verification
+      const bioResult = await authenticateWithBiometrics({
+        promptMessage: `Verify ${biometricName.toLowerCase()} to save attendance offline`,
+        cancelLabel: 'Cancel',
+        fallbackLabel: 'Use Device Passcode',
+      });
+
+      if (!bioResult.success && !bioResult.notAvailable) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError(
+          bioResult.error ||
+            'Fingerprint verification failed. Biometric authentication is required to confirm attendance.'
+        );
+        setLoading(false);
+        setScanned(false);
+        return;
+      }
+
+      const recordTimestamp = new Date().toISOString();
+      await enqueueOfflineAttendance({
+        attendanceCode: cleanCode,
+        studentId: user.id,
+        studentName: user.fullName || user.firstName || 'Student',
+        matricNumber: (user.unsafeMetadata as any)?.matric_number || null,
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        coords: locResult.coords ? {
+          latitude: locResult.coords.latitude,
+          longitude: locResult.coords.longitude,
+          accuracy: locResult.coords.accuracy,
+          isMocked: false,
+        } : null,
+        recordedAt: recordTimestamp,
+      });
+
       setLoading(false);
-      setScanned(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSuccess('Attendance saved offline! Will auto-sync when connected.');
+
+      setTimeout(() => {
+        router.push({
+          pathname: '/(student)/attendance-success',
+          params: {
+            timestamp: recordTimestamp,
+            deviceName: device.deviceName,
+            biometricMethod: biometricAvailable ? biometricName : 'Device Hardware Locked',
+            isOffline: 'true',
+            code: cleanCode,
+          },
+        });
+      }, 700);
       return;
     }
+
+    // ─── ONLINE MODE VALIDATIONS ────────────────────────────────────────────
 
     // ─── Verify Student is Enrolled in Course ───────────────────────────
     const { data: enrollment } = await supabase
@@ -129,6 +238,7 @@ export default function MarkAttendanceScreen() {
     }
 
     // ─── Proper Geofencing Validation ──────────────────────────────────
+    let locCoords: { latitude: number; longitude: number; accuracy: number | null } | null = null;
     if (session.latitude != null && session.longitude != null) {
       const locResult = await getCurrentAttendanceLocation();
       if (locResult.error || !locResult.coords) {
@@ -139,6 +249,7 @@ export default function MarkAttendanceScreen() {
         return;
       }
 
+      locCoords = locResult.coords;
       const allowedRadius = session.radius_meters || 50;
       const geo = validateGeofenceProximity(
         locResult.coords.latitude,
@@ -172,8 +283,6 @@ export default function MarkAttendanceScreen() {
     }
 
     // ─── Anti-Proxy Device Verification (Single-Device-Per-Session) ───
-    const device = await getDeviceFingerprint();
-
     // Check if this physical device has already recorded attendance for another student in this session
     const { data: existingDeviceRecord } = await supabase
       .from('attendance_records')
@@ -234,6 +343,42 @@ export default function MarkAttendanceScreen() {
     setLoading(false);
 
     if (recordError) {
+      // If network dropped right before saving to DB, fallback to offline queue!
+      if (isNetworkError(recordError)) {
+        await enqueueOfflineAttendance({
+          sessionId: session.id,
+          attendanceCode: cleanCode,
+          studentId: user.id,
+          studentName: user.fullName || user.firstName || 'Student',
+          matricNumber: (user.unsafeMetadata as any)?.matric_number || null,
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          coords: locCoords ? {
+            latitude: locCoords.latitude,
+            longitude: locCoords.longitude,
+            accuracy: locCoords.accuracy,
+            isMocked: false,
+          } : null,
+          recordedAt: recordTimestamp,
+        });
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setSuccess('Connection dropped — Attendance secured offline for auto-sync!');
+        setTimeout(() => {
+          router.push({
+            pathname: '/(student)/attendance-success',
+            params: {
+              timestamp: recordTimestamp,
+              deviceName: device.deviceName,
+              biometricMethod: biometricAvailable ? biometricName : 'Device Hardware Locked',
+              isOffline: 'true',
+              courseCode: session?.course?.course_code,
+            },
+          });
+        }, 700);
+        return;
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       const errMsg = String(recordError.message || recordError.details || '');
       if (
@@ -269,6 +414,7 @@ export default function MarkAttendanceScreen() {
             timestamp: recordTimestamp,
             deviceName: device.deviceName,
             biometricMethod: biometricAvailable ? biometricName : 'Device Hardware Locked',
+            courseCode: session?.course?.course_code,
           },
         });
       }, 700);
@@ -409,6 +555,10 @@ export default function MarkAttendanceScreen() {
             <View style={s.geoBadge}>
               <FingerprintIcon size={13} color={PRIMARY} style={{ marginRight: 4 }} />
               <Text style={[s.geoBadgeText, { color: PRIMARY }]}>{biometricName} Required</Text>
+            </View>
+            <View style={s.geoBadge}>
+              <CloudOff size={12} color={PRIMARY} />
+              <Text style={[s.geoBadgeText, { color: PRIMARY }]}>Offline Ready</Text>
             </View>
           </View>
         </View>
