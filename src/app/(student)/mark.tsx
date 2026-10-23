@@ -13,6 +13,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { getCurrentAttendanceLocation, validateGeofenceProximity } from '../../lib/geo';
 import { getDeviceFingerprint } from '../../lib/device';
 import { authenticateWithBiometrics, getBiometricCapabilities } from '../../lib/biometrics';
+import { validateScannedQr } from '../../lib/rotatingQr';
+import { logAttendanceAttempt } from '../../lib/attendanceTelemetry';
 import { FingerprintIcon } from '../../components/FingerprintIcon';
 import * as Haptics from 'expo-haptics';
 import { DatabaseAttendanceSession, DatabaseCourse } from '../../types/database';
@@ -84,8 +86,9 @@ export default function MarkAttendanceScreen() {
     }
   };
 
-  const submitCode = async (attendanceCode: string) => {
+  const submitCode = async (attendanceCode: string, isDynamic = false) => {
     if (!user || attendanceCode.length < 5) return;
+    const startTime = Date.now();
     setLoading(true);
     setError('');
     setSuccess('');
@@ -142,12 +145,26 @@ export default function MarkAttendanceScreen() {
         locResult.coords.longitude,
         session.latitude,
         session.longitude,
-        allowedRadius
+        allowedRadius,
+        locResult.coords.accuracy
       );
 
       if (!geo.isWithin) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(geo.message);
+        logAttendanceAttempt({
+          sessionId: session.id,
+          studentId: user.id,
+          zone: 'INSIDE_ROOM',
+          distanceMeters: geo.distance,
+          accuracyMeters: locResult.coords.accuracy,
+          allowedRadiusMeters: allowedRadius,
+          isMocked: false,
+          latencyMs: Date.now() - startTime,
+          qrType: isDynamic ? 'DYNAMIC' : 'STATIC',
+          decision: 'REJECTED',
+          rejectionReason: geo.message,
+        }).catch(() => {});
         setLoading(false);
         setScanned(false);
         return;
@@ -233,6 +250,18 @@ export default function MarkAttendanceScreen() {
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSuccess('Attendance verified & marked successfully!');
+      logAttendanceAttempt({
+        sessionId: session.id,
+        studentId: user.id,
+        zone: 'INSIDE_ROOM',
+        distanceMeters: 0,
+        accuracyMeters: null,
+        allowedRadiusMeters: session.radius_meters || 50,
+        isMocked: false,
+        latencyMs: Date.now() - startTime,
+        qrType: isDynamic ? 'DYNAMIC' : 'STATIC',
+        decision: 'ACCEPTED',
+      }).catch(() => {});
       setTimeout(() => {
         router.push({
           pathname: '/(student)/attendance-success',
@@ -257,20 +286,15 @@ export default function MarkAttendanceScreen() {
     setScanned(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // QR code may contain plain code or JSON like { code: 'XXXXX' }
-    let parsedCode = data;
-    try {
-      const parsed = JSON.parse(data);
-      if (parsed.code) parsedCode = parsed.code;
-    } catch {}
-
-    if (parsedCode && parsedCode.length === 5) {
-      submitCode(parsedCode);
-    } else {
+    const validation = validateScannedQr(data);
+    if (!validation.isValid) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError('Invalid QR code. Make sure you scan the attendance QR.');
+      setError(validation.error || 'Invalid or expired QR code.');
       setScanned(false);
+      return;
     }
+
+    submitCode(validation.code, validation.isDynamic);
   };
 
   const switchToScan = async () => {

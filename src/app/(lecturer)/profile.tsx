@@ -20,7 +20,7 @@ const ff = Platform.OS === 'android';
 export default function LecturerProfileScreen() {
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
-  const { user } = useUser();
+  const { user, refreshUser } = useUser();
   const router = useRouter();
   const supabase = useSupabaseClient();
   const { colors, mode, isDark, setMode } = useTheme();
@@ -36,11 +36,12 @@ export default function LecturerProfileScreen() {
     useCallback(() => {
       StatusBar.setBarStyle('light-content');
       if (Platform.OS === 'android') StatusBar.setBackgroundColor(colors.secondary);
+      refreshUser?.().catch(() => {});
       const timer = setTimeout(() => {
         fetchStats();
       }, 150);
       return () => clearTimeout(timer);
-    }, [user?.id, colors.secondary])
+    }, [user?.id, colors.secondary, refreshUser])
   );
 
   const fetchStats = async () => {

@@ -21,9 +21,37 @@ function parseHost(url: string): string {
 
 const NEON_HOST = parseHost(DATABASE_URL);
 const SQL_ENDPOINT = `https://${NEON_HOST}/sql`;
+const API_URL = process.env.EXPO_PUBLIC_API_URL || '';
+const USE_PROXY = process.env.EXPO_PUBLIC_USE_API_PROXY === 'true' || Boolean(API_URL);
 
 export async function executeSql<T = any>(query: string): Promise<{ data: T[] | null; error: any }> {
   try {
+    // Security Guard: Prohibit destructive DDL statements from client-side code
+    const trimmed = query.trim();
+    if (/^\s*(DROP|ALTER|TRUNCATE|GRANT|REVOKE)\b/i.test(trimmed)) {
+      return {
+        data: null,
+        error: { message: 'Security violation: DDL operations are prohibited from client apps.', code: '42501' },
+      };
+    }
+
+    // Shielding Mode: Route through secure serverless backend API proxy if configured
+    if (USE_PROXY && API_URL) {
+      const endpoint = `${API_URL.replace(/\/$/, '')}/api/db`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { data: null, error: json?.error || json };
+      }
+      return { data: (json.data as T[]) || [], error: null };
+    }
+
     const res = await fetch(SQL_ENDPOINT, {
       method: 'POST',
       headers: {

@@ -160,5 +160,32 @@ describe('geo.ts unit tests', () => {
       });
       expect(res.error).toBeNull();
     });
+
+    it('rejects simulated / mock locations on Android', async () => {
+      (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ status: 'granted' });
+      (Location.hasServicesEnabledAsync as jest.Mock).mockResolvedValue(true);
+      (Location.getLastKnownPositionAsync as jest.Mock).mockResolvedValue({
+        mocked: true,
+        coords: { latitude: 7.1480, longitude: 4.4570, accuracy: 5 },
+      });
+
+      const res = await getCurrentAttendanceLocation();
+      expect(res.coords).toBeNull();
+      expect(res.error).toContain('Mock or simulated GPS location detected');
+    });
+
+    it('rejects imprecise GPS coordinates when accuracy exceeds MAX_ACCEPTABLE_ACCURACY_METERS', async () => {
+      (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ status: 'granted' });
+      (Location.hasServicesEnabledAsync as jest.Mock).mockResolvedValue(true);
+      (Location.getLastKnownPositionAsync as jest.Mock).mockResolvedValue({
+        mocked: false,
+        coords: { latitude: 7.1480, longitude: 4.4570, accuracy: 120 },
+      });
+
+      const res = await getCurrentAttendanceLocation();
+      expect(res.coords).toBeNull();
+      expect(res.error).toContain('GPS signal is too imprecise');
+    });
   });
 });
+

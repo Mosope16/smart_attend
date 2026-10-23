@@ -119,6 +119,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const session = await neonAuth.getStoredSession();
         if (mounted && session?.user) {
           setUserProfile(session.user);
+          // Refresh fresh profile from Neon in background so database edits reflect automatically
+          neonAuth.refreshProfile(session.user.id).then((fresh) => {
+            if (mounted && fresh) {
+              setUserProfile(fresh);
+            }
+          }).catch(() => {});
         }
       } catch (err) {
         console.error('Error restoring auth session:', err);
@@ -198,10 +204,12 @@ export function useAuth() {
 }
 
 export function useUser() {
-  const { isLoaded, isSignedIn, user } = useContext(AuthContext);
+  const { isLoaded, isSignedIn, user, refreshUser } = useContext(AuthContext);
   return {
     isLoaded,
     isSignedIn,
     user,
+    refreshUser,
   };
 }
+

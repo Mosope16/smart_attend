@@ -62,3 +62,9 @@ scratch/
 
 # Coverage
 coverage/
+
+# Local AI & CLI Agent artifacts
+.agents/
+.claude/
+.commitshow/
+skills-lock.json

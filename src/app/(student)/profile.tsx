@@ -22,7 +22,7 @@ const ff = Platform.OS === 'android';
 export default function StudentProfileScreen() {
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
-  const { user } = useUser();
+  const { user, refreshUser } = useUser();
   const router = useRouter();
   const { colors, mode, isDark, setMode } = useTheme();
   const supabase = useSupabaseClient();
@@ -42,11 +42,12 @@ export default function StudentProfileScreen() {
     useCallback(() => {
       StatusBar.setBarStyle('light-content');
       if (Platform.OS === 'android') StatusBar.setBackgroundColor(isDark ? '#0D3320' : PRIMARY);
+      refreshUser?.().catch(() => {});
       const timer = setTimeout(() => {
         fetchStats();
       }, 150);
       return () => clearTimeout(timer);
-    }, [user?.id, isDark, PRIMARY])
+    }, [user?.id, isDark, PRIMARY, refreshUser])
   );
 
   const fetchStats = async () => {

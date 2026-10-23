@@ -1,32 +1,53 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View, Text, ScrollView, Pressable, StyleSheet, Platform, ActivityIndicator, Alert, Modal, TextInput, FlatList, RefreshControl,
-} from 'react-native';
-import { StatusBar } from 'react-native';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useUser } from '../../../context/AuthContext';
-import { useSupabaseClient } from '../../../lib/supabase';
-import {
-  ChevronLeft, Users, QrCode, User, Clock, RefreshCw, Download, MapPin, XCircle, Smartphone,
-  Shield, UserPlus, Trash2, Search, X, Check,
-} from 'lucide-react-native';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
-import { exportCsv } from '../../../lib/exportCsv';
-import QRCode from 'react-native-qrcode-svg';
-import Svg, { Circle } from 'react-native-svg';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../../context/ThemeContext';
-import { formatDate, formatTime, formatDDMMYYYY } from '../../../lib/dateUtils';
-import { getCurrentAttendanceLocation } from '../../../lib/geo';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  fetchCourseInstructors,
+  ChevronLeft,
+  Clock,
+  Download, MapPin,
+  QrCode,
+  RefreshCw,
+  Search,
+  Shield,
+  Smartphone,
+  Trash2,
+  User,
+  UserPlus,
+  Users,
+  X,
+  XCircle
+} from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { generateDynamicQrString, getWindowProgress } from '../../../lib/rotatingQr';
+import {
+  ActivityIndicator, Alert,
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
+import { useUser } from '../../../context/AuthContext';
+import { useTheme } from '../../../context/ThemeContext';
+import {
   addCoLecturer,
+  CourseInstructor,
+  fetchCourseInstructors,
   removeCoLecturer,
   searchAvailableLecturers,
-  CourseInstructor,
 } from '../../../lib/courseService';
+import { formatDDMMYYYY, formatTime } from '../../../lib/dateUtils';
+import { exportCsv } from '../../../lib/exportCsv';
+import { getCurrentAttendanceLocation } from '../../../lib/geo';
+import { useSupabaseClient } from '../../../lib/supabase';
 import { DatabaseCourse, StudentRosterItem } from '../../../types/database';
 
 const ff = Platform.OS === 'android';
@@ -54,6 +75,28 @@ export default function LecturerCourseDetails() {
   const [presentStudentDevices, setPresentStudentDevices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Dynamic Rotating QR State (Layer 2)
+  const [qrTimestamp, setQrTimestamp] = useState<number>(Date.now());
+  const [isDynamicQr, setIsDynamicQr] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const interval = setInterval(() => {
+      setQrTimestamp(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeSession]);
+
+  const activeQrString = useMemo(() => {
+    if (!activeSession) return '';
+    if (!isDynamicQr) return activeSession.attendance_code;
+    return generateDynamicQrString(activeSession.id, activeSession.attendance_code, qrTimestamp, 20).qrString;
+  }, [activeSession, isDynamicQr, qrTimestamp]);
+
+  const qrWindowProgress = useMemo(() => {
+    return getWindowProgress(qrTimestamp, 20);
+  }, [qrTimestamp]);
 
   // Co-Lecturer Management State
   const [instructors, setInstructors] = useState<{ lead: CourseInstructor | null; coLecturers: CourseInstructor[] }>({
@@ -98,7 +141,7 @@ export default function LecturerCourseDetails() {
         .order('end_time', { ascending: false })
         .limit(1)
         .single();
-      
+
       setActiveSession(sessionData ?? null);
       if (sessionData?.radius_meters) {
         setSelectedRadius(sessionData.radius_meters);
@@ -111,7 +154,7 @@ export default function LecturerCourseDetails() {
           .select('student_id, device_name')
           .eq('session_id', sessionData.id)
           .eq('status', 'present');
-        
+
         const presentIds = new Set<string>((recordsData ?? []).map((r: any) => r.student_id as string));
         const devMap: Record<string, string> = {};
         (recordsData ?? []).forEach((r: any) => {
@@ -612,268 +655,291 @@ export default function LecturerCourseDetails() {
         ListHeaderComponent={
           <>
 
-        {/* Session Card */}
-        {activeSession ? (
-          <View style={s.card}>
-            <View style={s.liveHeader}>
-              <View style={s.liveBadge}>
-                <View style={s.liveDot} />
-                <Text style={s.liveText}>SESSION LIVE</Text>
-              </View>
-              <Pressable onPress={handleRefresh} style={s.refreshBtn}>
-                <RefreshCw size={18} color={SECONDARY} />
-              </Pressable>
-            </View>
+            {/* Session Card */}
+            {activeSession ? (
+              <View style={s.card}>
+                <View style={s.liveHeader}>
+                  <View style={s.liveBadge}>
+                    <View style={s.liveDot} />
+                    <Text style={s.liveText}>SESSION LIVE</Text>
+                  </View>
+                  <Pressable onPress={handleRefresh} style={s.refreshBtn}>
+                    <RefreshCw size={18} color={SECONDARY} />
+                  </Pressable>
+                </View>
 
-            {/* Progress Ring */}
-            <View style={s.ringWrapper}>
-              <Svg width={140} height={140}>
-                <Circle cx={70} cy={70} r={radius} stroke={colors.cardBorder} strokeWidth={strokeWidth} fill="none" />
-                <Circle
-                  cx={70} cy={70} r={radius}
-                  stroke={SECONDARY} strokeWidth={strokeWidth}
-                  strokeDasharray={circumference}
-                  strokeDashoffset={strokeDashoffset}
-                  strokeLinecap="round" fill="none"
-                  rotation="-90" origin="70, 70"
-                />
-              </Svg>
-              <View style={s.ringCenter}>
-                <Text style={[s.ringPct, { color: SECONDARY }]}>{Math.round(progressPercentage)}%</Text>
-                <Text style={s.ringLabel}>Present</Text>
-              </View>
-            </View>
+                {/* Progress Ring */}
+                <View style={s.ringWrapper}>
+                  <Svg width={140} height={140}>
+                    <Circle cx={70} cy={70} r={radius} stroke={colors.cardBorder} strokeWidth={strokeWidth} fill="none" />
+                    <Circle
+                      cx={70} cy={70} r={radius}
+                      stroke={SECONDARY} strokeWidth={strokeWidth}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round" fill="none"
+                      rotation="-90" origin="70, 70"
+                    />
+                  </Svg>
+                  <View style={s.ringCenter}>
+                    <Text style={[s.ringPct, { color: SECONDARY }]}>{Math.round(progressPercentage)}%</Text>
+                    <Text style={s.ringLabel}>Present</Text>
+                  </View>
+                </View>
 
-            <Text style={s.codeLabel}>Attendance Code</Text>
-            <Text style={[s.codeValue, { color: SECONDARY }]}>{activeSession.attendance_code}</Text>
+                <Text style={s.codeLabel}>Attendance Code</Text>
+                <Text style={[s.codeValue, { color: SECONDARY }]}>{activeSession.attendance_code}</Text>
 
-            {/* Scannable QR for students */}
-            <View style={[s.qrBox, { borderColor: colors.cardBorder }]}>
-              <QRCode
-                value={activeSession.attendance_code}
-                size={140}
-                color={colors.text}
-                backgroundColor={colors.card}
-              />
-            </View>
-            <Text style={s.qrHint}>Students can scan this QR or type the code above</Text>
+                {/* Scannable Dynamic/Static QR for students */}
+                <View style={[s.qrBox, { borderColor: colors.cardBorder }]}>
+                  <QRCode
+                    value={activeQrString || activeSession.attendance_code}
+                    size={140}
+                    color={colors.text}
+                    backgroundColor={colors.card}
+                  />
+                </View>
 
-            <View style={s.timeRow}>
-              <Clock size={14} color={colors.textMuted} />
-              <Text style={s.timeText}>
-                Ends {formatTime(activeSession.end_time)}
-                {timeLeft ? ` (${timeLeft} remaining)` : ''}
-              </Text>
-            </View>
+                {isDynamicQr ? (
+                  <View style={{ marginTop: 8, alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 6 }}>
+                      <Shield size={12} color="#10B981" />
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: '#10B981' }}>
+                        Rotating in {qrWindowProgress.remainingSeconds}s (Anti-Relay)
+                      </Text>
+                    </View>
+                    <View style={{ width: 140, height: 3, backgroundColor: colors.cardBorder, borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
+                      <View style={{ width: `${Math.round(qrWindowProgress.progress * 100)}%`, height: '100%', backgroundColor: '#10B981' }} />
+                    </View>
+                  </View>
+                ) : null}
 
-            {activeSession.latitude && activeSession.longitude ? (
-              <View style={s.activeGeoBox}>
-                <View style={s.geoBadge}>
-                  <MapPin size={13} color={SECONDARY} />
-                  <Text style={[s.geoBadgeText, { color: SECONDARY }]}>
-                    Geofence: {activeSession.radius_meters || selectedRadius || 50}m Radius
+                <Pressable
+                  onPress={() => setIsDynamicQr(!isDynamicQr)}
+                  style={{ marginTop: 10, paddingVertical: 4, paddingHorizontal: 12, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: colors.textMuted }}>
+                    {isDynamicQr ? 'Switch to Static QR' : 'Enable Rotating Dynamic QR'}
+                  </Text>
+                </Pressable>
+                <Text style={s.qrHint}>Students can scan this QR or type the code above</Text>
+
+                <View style={s.timeRow}>
+                  <Clock size={14} color={colors.textMuted} />
+                  <Text style={s.timeText}>
+                    Ends {formatTime(activeSession.end_time)}
+                    {timeLeft ? ` (${timeLeft} remaining)` : ''}
                   </Text>
                 </View>
 
-                {/* Range Adjuster Buttons */}
-                <View style={s.liveAdjustRow}>
-                  <Text style={s.liveAdjustLabel}>Range:</Text>
-                  <View style={s.liveChipRow}>
+                {activeSession.latitude && activeSession.longitude ? (
+                  <View style={s.activeGeoBox}>
+                    <View style={s.geoBadge}>
+                      <MapPin size={13} color={SECONDARY} />
+                      <Text style={[s.geoBadgeText, { color: SECONDARY }]}>
+                        Geofence: {activeSession.radius_meters || selectedRadius || 50}m Radius
+                      </Text>
+                    </View>
+
+                    {/* Range Adjuster Buttons */}
+                    <View style={s.liveAdjustRow}>
+                      <Text style={s.liveAdjustLabel}>Range:</Text>
+                      <View style={s.liveChipRow}>
+                        {RADIUS_OPTIONS.map((opt) => {
+                          const cur = activeSession.radius_meters || selectedRadius || 50;
+                          const isCur = cur === opt.value;
+                          return (
+                            <Pressable
+                              key={opt.value}
+                              onPress={() => handleUpdateLiveRadius(opt.value)}
+                              style={[
+                                s.liveChip,
+                                isCur
+                                  ? { backgroundColor: SECONDARY, borderColor: SECONDARY }
+                                  : { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  s.liveChipText,
+                                  isCur ? { color: '#FFFFFF', fontWeight: '700' } : { color: colors.textSub },
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+
+                <Pressable onPress={endSession} style={s.endSessionBtn}>
+                  <XCircle size={15} color="#DC2626" />
+                  <Text style={s.endSessionBtnText}>Close Attendance Now</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={s.card}>
+                <View style={s.placeholderBox}>
+                  <QRCode value={JSON.stringify({ courseId: id, code: 'WAITING' })} size={130} color={colors.text} />
+                </View>
+                <Text style={s.readyTitle}>Ready to Start?</Text>
+                <Text style={s.readyBody}>Generate a unique session code for students to enter.</Text>
+
+                {/* Geofence Radius Selector */}
+                <View style={s.venueRadiusBox}>
+                  <View style={s.venueRadiusHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MapPin size={14} color={SECONDARY} />
+                      <Text style={s.venueRadiusTitle}>Venue Geofence Range</Text>
+                    </View>
+                    <Text style={[s.venueRadiusCurrent, { color: SECONDARY }]}>{selectedRadius}m</Text>
+                  </View>
+
+                  <View style={s.radiusChipsRow}>
                     {RADIUS_OPTIONS.map((opt) => {
-                      const cur = activeSession.radius_meters || selectedRadius || 50;
-                      const isCur = cur === opt.value;
+                      const isSel = selectedRadius === opt.value;
                       return (
                         <Pressable
                           key={opt.value}
-                          onPress={() => handleUpdateLiveRadius(opt.value)}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setSelectedRadius(opt.value);
+                          }}
                           style={[
-                            s.liveChip,
-                            isCur
+                            s.radiusChip,
+                            isSel
                               ? { backgroundColor: SECONDARY, borderColor: SECONDARY }
-                              : { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                              : { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder },
                           ]}
                         >
+                          <Text style={[s.radiusChipText, isSel ? { color: '#FFFFFF' } : { color: colors.text }]}>
+                            {opt.label}
+                          </Text>
                           <Text
                             style={[
-                              s.liveChipText,
-                              isCur ? { color: '#FFFFFF', fontWeight: '700' } : { color: colors.textSub },
+                              s.radiusChipSub,
+                              isSel ? { color: 'rgba(255,255,255,0.85)' } : { color: colors.textMuted },
                             ]}
                           >
-                            {opt.label}
+                            {opt.desc}
                           </Text>
                         </Pressable>
                       );
                     })}
                   </View>
                 </View>
+
+                <Pressable onPress={startSession} style={[s.startBtn, { backgroundColor: SECONDARY }]}>
+                  <QrCode size={18} color="#FFF" />
+                  <Text style={s.startBtnText}>Start Session ({selectedRadius}m)</Text>
+                </Pressable>
               </View>
-            ) : null}
+            )}
 
-            <Pressable onPress={endSession} style={s.endSessionBtn}>
-              <XCircle size={15} color="#DC2626" />
-              <Text style={s.endSessionBtnText}>Close Attendance Now</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={s.card}>
-            <View style={s.placeholderBox}>
-              <QRCode value={JSON.stringify({ courseId: id, code: 'WAITING' })} size={130} color={colors.text} />
-            </View>
-            <Text style={s.readyTitle}>Ready to Start?</Text>
-            <Text style={s.readyBody}>Generate a unique session code for students to enter.</Text>
-
-            {/* Geofence Radius Selector */}
-            <View style={s.venueRadiusBox}>
-              <View style={s.venueRadiusHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <MapPin size={14} color={SECONDARY} />
-                  <Text style={s.venueRadiusTitle}>Venue Geofence Range</Text>
+            {/* Course Instructors / Teaching Team */}
+            <View style={s.instructorsHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Shield size={16} color={SECONDARY} />
+                <Text style={s.sectionTitle}>Teaching Team</Text>
+                <View style={[s.countBadge, { backgroundColor: colors.secondaryDim }]}>
+                  <Text style={[s.countBadgeText, { color: SECONDARY }]}>
+                    {1 + instructors.coLecturers.length}
+                  </Text>
                 </View>
-                <Text style={[s.venueRadiusCurrent, { color: SECONDARY }]}>{selectedRadius}m</Text>
-              </View>
-
-              <View style={s.radiusChipsRow}>
-                {RADIUS_OPTIONS.map((opt) => {
-                  const isSel = selectedRadius === opt.value;
-                  return (
-                    <Pressable
-                      key={opt.value}
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        setSelectedRadius(opt.value);
-                      }}
-                      style={[
-                        s.radiusChip,
-                        isSel
-                          ? { backgroundColor: SECONDARY, borderColor: SECONDARY }
-                          : { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder },
-                      ]}
-                    >
-                      <Text style={[s.radiusChipText, isSel ? { color: '#FFFFFF' } : { color: colors.text }]}>
-                        {opt.label}
-                      </Text>
-                      <Text
-                        style={[
-                          s.radiusChipSub,
-                          isSel ? { color: 'rgba(255,255,255,0.85)' } : { color: colors.textMuted },
-                        ]}
-                      >
-                        {opt.desc}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
-            <Pressable onPress={startSession} style={[s.startBtn, { backgroundColor: SECONDARY }]}>
-              <QrCode size={18} color="#FFF" />
-              <Text style={s.startBtnText}>Start Session ({selectedRadius}m)</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Course Instructors / Teaching Team */}
-        <View style={s.instructorsHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Shield size={16} color={SECONDARY} />
-            <Text style={s.sectionTitle}>Teaching Team</Text>
-            <View style={[s.countBadge, { backgroundColor: colors.secondaryDim }]}>
-              <Text style={[s.countBadgeText, { color: SECONDARY }]}>
-                {1 + instructors.coLecturers.length}
-              </Text>
-            </View>
-          </View>
-
-          {isLeadLecturer && (
-            <Pressable
-              onPress={handleOpenAddModal}
-              style={[s.addCoLecturerBtn, { backgroundColor: colors.secondaryDim }]}
-            >
-              <UserPlus size={14} color={SECONDARY} />
-              <Text style={[s.addCoLecturerText, { color: SECONDARY }]}>+ Add Co-Lecturer</Text>
-            </Pressable>
-          )}
-        </View>
-
-        <View style={s.instructorsCard}>
-          {/* Lead Lecturer Card */}
-          <View style={[s.instructorRow, instructors.coLecturers.length > 0 && s.rosterBorder]}>
-            <View style={[s.instructorIcon, { backgroundColor: colors.secondaryDim }]}>
-              <Shield size={18} color={SECONDARY} />
-            </View>
-            <View style={s.instructorInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Text style={s.instructorName}>
-                  {instructors.lead?.name || 'Lead Lecturer'}
-                </Text>
-                <View style={s.leadBadge}>
-                  <Text style={s.leadBadgeText}>Coordinator</Text>
-                </View>
-              </View>
-              <Text style={s.instructorSub}>
-                {instructors.lead?.email || 'Department Coordinator'}
-                {instructors.lead?.staff_id ? ` · Staff ID: ${instructors.lead.staff_id}` : ''}
-              </Text>
-            </View>
-          </View>
-
-          {/* Co-Lecturers */}
-          {instructors.coLecturers.map((col, idx) => (
-            <View
-              key={col.lecturer_id}
-              style={[s.instructorRow, idx < instructors.coLecturers.length - 1 && s.rosterBorder]}
-            >
-              <View style={[s.instructorIcon, { backgroundColor: colors.cardAlt }]}>
-                <User size={18} color={colors.textSub} />
-              </View>
-              <View style={s.instructorInfo}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <Text style={s.instructorName}>{col.name}</Text>
-                  <View style={s.coLecturerBadge}>
-                    <Text style={s.coLecturerBadgeText}>Co-Lecturer</Text>
-                  </View>
-                </View>
-                <Text style={s.instructorSub}>
-                  {col.email || 'Department Staff'}
-                  {col.staff_id ? ` · Staff ID: ${col.staff_id}` : ''}
-                </Text>
               </View>
 
               {isLeadLecturer && (
                 <Pressable
-                  onPress={() => handleRemoveCoLecturer(col.lecturer_id, col.name)}
-                  hitSlop={8}
-                  style={s.removeBtn}
+                  onPress={handleOpenAddModal}
+                  style={[s.addCoLecturerBtn, { backgroundColor: colors.secondaryDim }]}
                 >
-                  <Trash2 size={16} color="#DC2626" />
+                  <UserPlus size={14} color={SECONDARY} />
+                  <Text style={[s.addCoLecturerText, { color: SECONDARY }]}>+ Add Co-Lecturer</Text>
                 </Pressable>
               )}
             </View>
-          ))}
-        </View>
 
-        {/* Roster */}
-        <View style={s.rosterHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={s.sectionTitle}>Student Roster</Text>
-            {refreshing && <ActivityIndicator size="small" color={SECONDARY} />}
-          </View>
-          <Pressable
-            onPress={handleExportCSV}
-            disabled={exporting || students.length === 0}
-            style={[s.exportBtn, { backgroundColor: colors.secondaryDim }, (exporting || students.length === 0) && { opacity: 0.6 }]}
-          >
-            {exporting ? (
-              <ActivityIndicator size="small" color={SECONDARY} />
-            ) : (
-              <>
-                <Download size={14} color={SECONDARY} />
-                <Text style={[s.exportText, { color: SECONDARY }]}>Print / Export CSV</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
+            <View style={s.instructorsCard}>
+              {/* Lead Lecturer Card */}
+              <View style={[s.instructorRow, instructors.coLecturers.length > 0 && s.rosterBorder]}>
+                <View style={[s.instructorIcon, { backgroundColor: colors.secondaryDim }]}>
+                  <Shield size={18} color={SECONDARY} />
+                </View>
+                <View style={s.instructorInfo}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={s.instructorName}>
+                      {instructors.lead?.name || 'Lead Lecturer'}
+                    </Text>
+                    <View style={s.leadBadge}>
+                      <Text style={s.leadBadgeText}>Coordinator</Text>
+                    </View>
+                  </View>
+                  <Text style={s.instructorSub}>
+                    {instructors.lead?.email || 'Department Coordinator'}
+                    {instructors.lead?.staff_id ? ` · Staff ID: ${instructors.lead.staff_id}` : ''}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Co-Lecturers */}
+              {instructors.coLecturers.map((col, idx) => (
+                <View
+                  key={col.lecturer_id}
+                  style={[s.instructorRow, idx < instructors.coLecturers.length - 1 && s.rosterBorder]}
+                >
+                  <View style={[s.instructorIcon, { backgroundColor: colors.cardAlt }]}>
+                    <User size={18} color={colors.textSub} />
+                  </View>
+                  <View style={s.instructorInfo}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={s.instructorName}>{col.name}</Text>
+                      <View style={s.coLecturerBadge}>
+                        <Text style={s.coLecturerBadgeText}>Co-Lecturer</Text>
+                      </View>
+                    </View>
+                    <Text style={s.instructorSub}>
+                      {col.email || 'Department Staff'}
+                      {col.staff_id ? ` · Staff ID: ${col.staff_id}` : ''}
+                    </Text>
+                  </View>
+
+                  {isLeadLecturer && (
+                    <Pressable
+                      onPress={() => handleRemoveCoLecturer(col.lecturer_id, col.name)}
+                      hitSlop={8}
+                      style={s.removeBtn}
+                    >
+                      <Trash2 size={16} color="#DC2626" />
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </View>
+
+            {/* Roster */}
+            <View style={s.rosterHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={s.sectionTitle}>Student Roster</Text>
+                {refreshing && <ActivityIndicator size="small" color={SECONDARY} />}
+              </View>
+              <Pressable
+                onPress={handleExportCSV}
+                disabled={exporting || students.length === 0}
+                style={[s.exportBtn, { backgroundColor: colors.secondaryDim }, (exporting || students.length === 0) && { opacity: 0.6 }]}
+              >
+                {exporting ? (
+                  <ActivityIndicator size="small" color={SECONDARY} />
+                ) : (
+                  <>
+                    <Download size={14} color={SECONDARY} />
+                    <Text style={[s.exportText, { color: SECONDARY }]}>Print / Export CSV</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
 
           </>
         }

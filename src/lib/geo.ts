@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 
 export const DEFAULT_GEOFENCE_RADIUS_METERS = 50;
+export const MAX_ACCEPTABLE_ACCURACY_METERS = 60;
 
 /**
  * Calculates the great-circle distance between two GPS coordinates using the Haversine formula.
@@ -110,6 +111,23 @@ export async function getCurrentAttendanceLocation(): Promise<{
       };
     }
 
+    // Anti-Spoofing: Reject mock / simulated GPS locations (Android Fake GPS / Mock Location apps)
+    if ((location as any).mocked === true) {
+      return {
+        coords: null,
+        error: 'Mock or simulated GPS location detected. Please disable location spoofing applications to mark attendance.',
+      };
+    }
+
+    // Accuracy Gating: Reject readings with high uncertainty (e.g. coarse cellular fallback > 60m)
+    const accuracy = location.coords.accuracy;
+    if (accuracy != null && accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) {
+      return {
+        coords: null,
+        error: `GPS signal is too imprecise (reported accuracy: ±${Math.round(accuracy)}m; maximum allowed: ±${MAX_ACCEPTABLE_ACCURACY_METERS}m). Please move closer to a window or open area and retry.`,
+      };
+    }
+
     return {
       coords: {
         latitude: location.coords.latitude,
@@ -129,16 +147,19 @@ export async function getCurrentAttendanceLocation(): Promise<{
 
 /**
  * Validates whether the student's location falls within the lecture hall geofence boundary.
+ * Also accounts for reported GPS uncertainty margin.
  */
 export function validateGeofenceProximity(
   studentLat: number,
   studentLon: number,
   sessionLat?: number | null,
   sessionLon?: number | null,
-  allowedRadius = DEFAULT_GEOFENCE_RADIUS_METERS
+  allowedRadius = DEFAULT_GEOFENCE_RADIUS_METERS,
+  studentAccuracy?: number | null
 ): {
   isWithin: boolean;
   distance: number;
+  accuracy: number | null;
   message: string;
 } {
   // If session coordinates were not set (e.g. online/remote lecture), allow check-in
@@ -146,24 +167,30 @@ export function validateGeofenceProximity(
     return {
       isWithin: true,
       distance: 0,
+      accuracy: studentAccuracy ?? null,
       message: 'No geofence restriction set for this session.',
     };
   }
 
   const distance = calculateHaversineDistance(studentLat, studentLon, sessionLat, sessionLon);
   const rounded = Math.round(distance);
+  const roundedAcc = studentAccuracy != null ? Math.round(studentAccuracy) : null;
+  const accSuffix = roundedAcc != null ? ` (accuracy: ±${roundedAcc}m)` : '';
 
   if (distance <= allowedRadius) {
     return {
       isWithin: true,
       distance: rounded,
-      message: `Location verified within classroom (${rounded}m from lecturer).`,
+      accuracy: roundedAcc,
+      message: `Location verified within classroom (${rounded}m from lecturer)${accSuffix}.`,
     };
   }
 
   return {
     isWithin: false,
     distance: rounded,
-    message: `Geofence check failed: You are ${rounded}m away from the lecture hall (Maximum allowed: ${allowedRadius}m).`,
+    accuracy: roundedAcc,
+    message: `Geofence check failed: You are ${rounded}m away from the lecture hall (Maximum allowed: ${allowedRadius}m)${accSuffix}.`,
   };
 }
+
